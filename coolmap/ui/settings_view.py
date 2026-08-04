@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QScrollArea,
     QSlider,
@@ -193,6 +194,38 @@ class SettingsView(QWidget):
         body.addLayout(day_row)
         lay.addWidget(card)
 
+        # 4.5 API 키 -----------------------------------------------------------
+        card, body = self._card("API 키", "gear")
+        kdesc = QLabel(
+            "키를 넣으면 실데이터로 동작합니다. 없어도 앱은 폴백 모드로 실행됩니다.\n"
+            "입력한 키는 이 PC의 %APPDATA%\\CoolMap\\secrets.json 에만 저장되며, "
+            "실행 파일이나 저장소에는 포함되지 않습니다."
+        )
+        kdesc.setObjectName("dim")
+        kdesc.setWordWrap(True)
+        body.addWidget(kdesc)
+
+        self.key_edits = {}
+        self._key_row(body, "무더위쉼터", "shelter_service_key",
+                      "safetydata.go.kr 인증키 — 전국 쉼터 목록")
+        self._key_row(body, "기상청", "kma_service_key",
+                      "data.go.kr 일반 인증키 — 실시간 날씨")
+        self._key_row(body, "Gemini", "gemini_api_key",
+                      "aistudio.google.com — 민폐도 산출")
+
+        krow = QHBoxLayout()
+        self.key_save = QPushButton("키 저장하고 적용")
+        self.key_save.setObjectName("primary")
+        self.key_save.setCursor(Qt.PointingHandCursor)
+        self.key_save.clicked.connect(self._save_keys)
+        self.key_msg = QLabel("")
+        self.key_msg.setObjectName("mute")
+        self.key_msg.setFont(mono(9, QFont.Normal, 0.5))
+        krow.addWidget(self.key_save)
+        krow.addWidget(self.key_msg, 1)
+        body.addLayout(krow)
+        lay.addWidget(card)
+
         # 5. 데이터 출처 --------------------------------------------------------
         card, body = self._card("데이터 연동 상태", "layers")
         self.source_label = QLabel("-")
@@ -284,6 +317,67 @@ class SettingsView(QWidget):
         row.addWidget(value)
         slider.value_label = value  # type: ignore[attr-defined]
         return slider, row
+
+    def _key_row(self, body, label: str, secret_name: str, hint: str) -> None:
+        row = QHBoxLayout()
+        row.setSpacing(10)
+        lab = QLabel(label)
+        lab.setFixedWidth(96)
+        lab.setObjectName("dim")
+        edit = QLineEdit()
+        edit.setEchoMode(QLineEdit.Password)
+        edit.setPlaceholderText(hint)
+        edit.setMinimumWidth(320)
+        show = QPushButton("보기")
+        show.setCheckable(True)
+        show.setFixedWidth(56)
+        show.setCursor(Qt.PointingHandCursor)
+        show.toggled.connect(
+            lambda on, e=edit: e.setEchoMode(QLineEdit.Normal if on else QLineEdit.Password))
+        state_lab = QLabel("-")
+        state_lab.setObjectName("mute")
+        state_lab.setFont(mono(9, QFont.Normal, 0.5))
+        state_lab.setFixedWidth(150)
+        row.addWidget(lab)
+        row.addWidget(edit, 1)
+        row.addWidget(show)
+        row.addWidget(state_lab)
+        body.addLayout(row)
+        self.key_edits[secret_name] = (edit, state_lab)
+
+    @staticmethod
+    def _mask(value: str) -> str:
+        if not value:
+            return "미설정"
+        if len(value) <= 10:
+            return "설정됨"
+        return f"설정됨 ({value[:4]}…{value[-4:]})"
+
+    def _save_keys(self) -> None:
+        from .. import secrets
+
+        changed = {}
+        for name, (edit, _lab) in self.key_edits.items():
+            v = edit.text().strip()
+            if v:
+                changed[name] = v
+        if not changed:
+            self.key_msg.setText("입력된 키가 없습니다")
+            return
+
+        secrets.write(changed)
+        for name in changed:
+            edit, _ = self.key_edits[name]
+            edit.clear()
+
+        # 새 키로 즉시 다시 시도
+        if "shelter_service_key" in changed:
+            providers.shelter_provider().sync(force=True)
+        if "gemini_api_key" in changed:
+            providers.nuisance_ai().clear_cache()
+        self.key_msg.setText(f"{len(changed)}개 저장 완료 — 적용 중입니다")
+        self.refresh()
+        self.changed.emit()
 
     def _locate(self) -> None:
         loc = providers.location_provider()
@@ -419,6 +513,10 @@ class SettingsView(QWidget):
         manual = s.get("time_mode") == "manual"
         self.hour_slider.setEnabled(manual)
         self.day_combo.setEnabled(manual)
+        from .. import secrets
+
+        for name, (edit, lab) in self.key_edits.items():
+            lab.setText(self._mask(secrets.get(name)))
         self._refresh_sources()
         self._loading = False
 

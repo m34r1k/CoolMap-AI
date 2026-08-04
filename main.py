@@ -39,8 +39,13 @@ def main() -> int:
     # 프로세스가 최대 1분 가까이 남는다. 캐시는 모두 원자적으로 기록되므로
     # 정리 후 즉시 종료한다.
     providers.shutdown_all()
-    sys.stdout.flush()
-    sys.stderr.flush()
+    # PyInstaller --windowed 로 빌드하면 sys.stdout/stderr 가 None 이다
+    for stream in (sys.stdout, sys.stderr):
+        if stream is not None:
+            try:
+                stream.flush()
+            except Exception:
+                pass
     os._exit(code)
 
 

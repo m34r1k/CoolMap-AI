@@ -12,6 +12,11 @@ __pycache__/
 .venv/
 venv/
 
+# 빌드 산출물
+build/
+dist/
+*.spec
+
 # 캐시 · 테스트 산출물
 .cache/
 _test_settings.json
