@@ -1,0 +1,25 @@
+# API 키 — 절대 커밋 금지 (실제 키는 %APPDATA%\CoolMap\secrets.json 에 보관)
+secrets.json
+.env
+
+# 디자인 시안 (용량이 커서 저장소에서 제외)
+designs/
+
+# 파이썬
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# 캐시 · 테스트 산출물
+.cache/
+_test_settings.json
+*.log
+
+# 로컬 도구 설정
+.claude/
+
+# OS
+Thumbs.db
+.DS_Store
