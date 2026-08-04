@@ -28,6 +28,27 @@ BASE = "https://www.safetydata.go.kr/V2/api"
 PAGE_SIZE = 1000
 CACHE_TTL = 14 * 24 * 3600      # 2주
 
+#: 재시도해도 소용없는 응답 코드 → 즉시 중단한다.
+#: 특히 22(일일 한도 초과)에서 재시도하면 남은 한도까지 갉아먹는다.
+FATAL_CODES = {
+    "22": "일일 요청 한도를 초과했습니다. 보통 다음 날 0시에 초기화됩니다.",
+    "20": "이 키로는 해당 서비스에 접근할 수 없습니다. 활용신청이 승인됐는지 확인하세요.",
+    "30": "등록되지 않은 키입니다. 발급 직후라면 1~2시간 뒤 다시 시도하세요.",
+    "31": "키 사용 기간이 만료되었습니다.",
+}
+
+
+class ApiRefused(RuntimeError):
+    """재시도가 무의미한 API 거부 (한도 초과·키 문제)."""
+
+    def __init__(self, code: str, msg: str):
+        self.code = code
+        self.msg = msg
+        super().__init__(f"[{code}] {msg}")
+
+    def friendly(self) -> str:
+        return FATAL_CODES.get(self.code, self.msg)
+
 # FCLTY_TY 코드
 TY_PUBLIC = "001"    # 행정복지센터 · 주민센터 · 복지관
 TY_OUTDOOR = "002"   # 야외 쉼터 · 공원 정자
@@ -230,6 +251,8 @@ class ShelterProvider(QObject):
         self._syncing = False
         self._error = ""
         self._fetched_at = 0.0
+        self._missing_pages: list[int] = []
+        self._total_expected = 0
         self._load_cache()
 
     # -- 상태 -------------------------------------------------------------
@@ -265,20 +288,26 @@ class ShelterProvider(QObject):
             with self._lock:
                 self._records = raw["records"]
             self._fetched_at = raw.get("fetched_at", 0)
+            self._missing_pages = raw.get("missing_pages", [])
+            self._total_expected = raw.get("total_expected", 0)
         except (OSError, ValueError, KeyError):
             pass
 
     def _save_cache(self) -> None:
         try:
             with self._lock:
-                data = {"fetched_at": time.time(), "records": self._records}
+                data = {"fetched_at": time.time(), "records": self._records,
+                        "missing_pages": self._missing_pages,
+                        "total_expected": self._total_expected}
             self._file.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
             self._fetched_at = data["fetched_at"]
         except OSError:
             pass
 
     def stale(self) -> bool:
-        return not self.loaded or (time.time() - self._fetched_at) > CACHE_TTL
+        if not self.loaded or self._missing_pages:
+            return True
+        return (time.time() - self._fetched_at) > CACHE_TTL
 
     # -- 동기화 -----------------------------------------------------------
     def sync(self, force: bool = False) -> None:
@@ -300,8 +329,14 @@ class ShelterProvider(QObject):
                                      headers={"User-Agent": "CoolMapAI/1.0"})
         with urllib.request.urlopen(req, timeout=45) as r:
             d = json.loads(r.read().decode("utf-8", "replace"))
-        if d.get("header", {}).get("resultCode") != "00":
-            raise RuntimeError(d.get("header", {}).get("errorMsg", "unknown error"))
+        header = d.get("header", {})
+        code = header.get("resultCode")
+        if code != "00":
+            msg = header.get("errorMsg") or header.get("resultMsg") or "unknown error"
+            # 22: 일일 요청 한도 초과 / 20·30: 키 거부
+            if code in FATAL_CODES:
+                raise ApiRefused(code, msg)
+            raise RuntimeError(f"[{code}] {msg}")
         return d.get("body") or [], int(d.get("totalCount") or 0)
 
     #: 캐시에 담을 필드만 남겨 용량을 줄인다
@@ -311,44 +346,84 @@ class ShelterProvider(QObject):
              "CHCK_MATTER_WKEND_HDAY_OPN_AT", "CHCK_MATTER_NIGHT_OPN_AT",
              "CHCK_MATTER_STAYNG_PSBL_AT")
 
+    def _trim(self, body: list[dict]) -> list[dict]:
+        return [{k: r.get(k) for k in self._KEEP if r.get(k) is not None} for r in body]
+
     def _do_sync(self) -> None:
+        """전량 동기화.
+
+        일일 요청 한도가 있는 API 라서, 실패해도 받은 만큼은 반드시 저장하고
+        못 받은 페이지 번호를 기록해 다음 실행에서 그것만 이어받는다.
+        한도 초과(22) 같은 응답에는 재시도하지 않는다 — 남은 한도만 더 갉아먹는다.
+        """
+        rows: list[dict] = []
+        total = 0
+        refused: ApiRefused | None = None
         try:
             first, total = self._fetch_page(1)
-            rows = [{k: r.get(k) for k in self._KEEP if r.get(k) is not None}
-                    for r in first]
+            rows = self._trim(first)
             pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
             self.progress.emit(len(rows), total)
 
-            failed: list[int] = []
-            for page in range(2, pages + 1):
+            # 이어받기: 이전에 못 받은 페이지가 있으면 그것만 처리
+            todo = self._missing_pages or list(range(2, pages + 1))
+            if self._missing_pages:
+                with self._lock:
+                    rows = list(self._records) or rows
+
+            missing: list[int] = []
+            for page in todo:
                 body = None
-                for attempt in range(3):        # 공개 API 라 간헐적으로 끊긴다
+                for attempt in range(2):     # 일시적 오류만 한 번 더
                     try:
                         body, _ = self._fetch_page(page)
+                        break
+                    except ApiRefused as exc:
+                        refused = exc
                         break
                     except Exception as exc:
                         self._error = f"p{page} {type(exc).__name__}: {exc}"
                         time.sleep(0.8 * (attempt + 1))
+                if refused is not None:
+                    missing.extend(p for p in todo if p >= page)
+                    break
                 if body is None:
-                    failed.append(page)
+                    missing.append(page)
                     continue
-                rows.extend({k: r.get(k) for k in self._KEEP if r.get(k) is not None}
-                            for r in body)
+                rows.extend(self._trim(body))
                 self.progress.emit(len(rows), total)
                 time.sleep(0.08)      # 공공 API 배려
 
+            self._missing_pages = missing
+            self._total_expected = total
             if rows:
                 with self._lock:
                     self._records = rows
                 self._save_cache()
-                # 일부 페이지가 빠졌으면 그 사실을 남긴다 (조용히 성공 처리하지 않는다)
-                self._error = (f"{len(failed)}개 페이지 누락 (총 {len(rows)}/{total}건)"
-                               if failed else "")
+
+            if refused is not None:
+                self._error = refused.friendly()
+            elif missing:
+                self._error = (f"{len(missing)}개 구간을 받지 못했습니다 "
+                               f"({len(rows):,}/{total:,}건). 다시 시도하면 이어받습니다.")
+            else:
+                self._error = ""
+        except ApiRefused as exc:
+            self._error = exc.friendly()
         except Exception as exc:
             self._error = f"{type(exc).__name__}: {exc}"
         finally:
             self._syncing = False
         self.ready.emit()
+
+    @property
+    def partial(self) -> bool:
+        """일부만 받아온 상태인지."""
+        return bool(self._missing_pages) and self.loaded
+
+    @property
+    def total_expected(self) -> int:
+        return self._total_expected or self.count
 
     # -- 조회 -------------------------------------------------------------
     def nearby(self, origin: tuple[float, float], mode: str,

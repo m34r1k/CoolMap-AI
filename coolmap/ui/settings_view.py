@@ -372,10 +372,33 @@ class SettingsView(QWidget):
 
         # 새 키로 즉시 다시 시도
         if "shelter_service_key" in changed:
-            providers.shelter_provider().sync(force=True)
+            sp = providers.shelter_provider()
+            try:
+                sp.progress.disconnect(self._on_sync_progress)
+                sp.ready.disconnect(self._on_sync_done)
+            except (RuntimeError, TypeError):
+                pass
+            sp.progress.connect(self._on_sync_progress)
+            sp.ready.connect(self._on_sync_done)
+            sp.sync(force=True)
         if "gemini_api_key" in changed:
             providers.nuisance_ai().clear_cache()
         self.key_msg.setText(f"{len(changed)}개 저장 완료 — 적용 중입니다")
+        self.refresh()
+        self.changed.emit()
+
+    def _on_sync_done(self) -> None:
+        """동기화가 끝나면 성공/실패를 분명히 알린다."""
+        sp = providers.shelter_provider()
+        self.sync_btn.setText("쉼터 데이터 새로 받기")
+        self.sync_btn.setEnabled(True)
+        p = self.state.palette
+        if sp.error:
+            self.key_msg.setText(f"쉼터 내려받기 실패 — {sp.error}")
+            self.key_msg.setStyleSheet(f"color: {p.bad};")
+        elif sp.loaded:
+            self.key_msg.setText(f"쉼터 {sp.count:,}건 적용 완료")
+            self.key_msg.setStyleSheet(f"color: {p.good};")
         self.refresh()
         self.changed.emit()
 
@@ -399,8 +422,13 @@ class SettingsView(QWidget):
 
     def _sync_shelters(self) -> None:
         sp = providers.shelter_provider()
+        try:
+            sp.progress.disconnect(self._on_sync_progress)
+            sp.ready.disconnect(self._on_sync_done)
+        except (RuntimeError, TypeError):
+            pass
         sp.progress.connect(self._on_sync_progress)
-        sp.ready.connect(self.refresh)
+        sp.ready.connect(self._on_sync_done)
         sp.sync(force=True)
         self.sync_btn.setText("받는 중…")
         self.sync_btn.setEnabled(False)
@@ -437,16 +465,21 @@ class SettingsView(QWidget):
         sp = providers.shelter_provider()
         from ..catalog import source_label
 
-        if sp.loaded:
+        if sp.syncing:
+            shelter_txt = "쉼터 목록 — 내려받는 중…"
+        elif sp.loaded and sp.partial:
+            shelter_txt = (f"쉼터 목록 — 부분 수신 {sp.count:,}/{sp.total_expected:,}건"
+                           " (다시 받으면 이어받습니다)")
+        elif sp.loaded:
             shelter_txt = (f"쉼터 목록 — 행안부 무더위쉼터 {sp.count:,}건"
                            f" (내려받은 지 {sp.age_days:.1f}일)")
-        elif sp.syncing:
-            shelter_txt = "쉼터 목록 — 내려받는 중…"
+        elif not sp.has_key:
+            shelter_txt = "쉼터 목록 — 데모 데이터 (키 미입력)"
         else:
-            shelter_txt = "쉼터 목록 — 데모 데이터 (키 없음 또는 미동기화)"
+            shelter_txt = "쉼터 목록 — 데모 데이터 (내려받기 실패)"
 
         rows = [
-            dot(sp.loaded, shelter_txt),
+            dot(sp.loaded and not sp.partial, shelter_txt),
             dot(sp.loaded, f"현재 모드 출처 — {source_label(self.state.mode)}"),
             dot(not tiles.offline, f"지도 타일 — OpenStreetMap "
                                    f"(캐시 {tiles.cache_size_mb():.1f}MB)"),
@@ -458,6 +491,11 @@ class SettingsView(QWidget):
             dot(CROWD_ENABLED, "혼잡도 — 실시간 인구 데이터 "
                                + ("연동됨" if CROWD_ENABLED else "연동 예정 (Coming Soon)")),
         ]
+        if sp.error:
+            rows.append(
+                f"<span style='color:{p.bad};'>▲ 쉼터 내려받기: {sp.error}</span>")
+        if ai.error and not ai.enabled:
+            rows.append(f"<span style='color:{p.text_mute};'>· 민폐도: {ai.error[:80]}</span>")
         self.source_label.setText("<br>".join(rows))
 
     def _set(self, key: str, value) -> None:
