@@ -222,7 +222,7 @@ class MainWindow(QMainWindow):
         # 외부 데이터 준비 (백그라운드)
         self.nuisance_ai = providers.nuisance_ai()
         self.weather = providers.weather_provider()
-        self.shelters = providers.shelter_provider()
+        self.shelters = providers.shelter_provider(state.mode)
         self.shelters.ready.connect(self._on_shelters)
         self.location = providers.location_provider()
         self.location.located.connect(self._on_located)
@@ -260,6 +260,12 @@ class MainWindow(QMainWindow):
         from ..catalog import places_for
 
         self.weather.observation(*self.state.origin)
+        # 현재 모드의 쉼터 데이터셋을 동기화한다 (냉방=무더위 / 난방=한파)
+        self.shelters = providers.shelter_provider(self.state.mode)
+        try:
+            self.shelters.ready.connect(self._on_shelters)
+        except (RuntimeError, TypeError):
+            pass
         self.shelters.sync()
         # 민폐도는 '시설 유형' 단위로 캐시되므로 근처 목록만 예열해도 대부분 채워진다
         self.nuisance_ai.warm(

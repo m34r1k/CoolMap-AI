@@ -9,7 +9,7 @@ _tiles = None
 _weather = None
 _buildings = None
 _nuisance = None
-_shelters = None
+_shelters: dict = {}
 _location = None
 
 
@@ -45,12 +45,20 @@ def nuisance_ai():
     return _nuisance
 
 
-def shelter_provider():
-    global _shelters
-    if _shelters is None:
-        from .shelters import ShelterProvider
-        _shelters = ShelterProvider()
-    return _shelters
+def shelter_provider(mode: str = "cooling"):
+    """모드별 쉼터 제공자 (냉방=무더위쉼터 / 난방=한파쉼터)."""
+    from .shelters import DATASETS, ShelterProvider
+
+    ds = DATASETS.get(mode) or DATASETS["cooling"]
+    if ds.mode not in _shelters:
+        _shelters[ds.mode] = ShelterProvider(ds)
+    return _shelters[ds.mode]
+
+
+def all_shelter_providers():
+    from .shelters import DATASETS
+
+    return [shelter_provider(m) for m in DATASETS]
 
 
 def location_provider():
@@ -62,7 +70,8 @@ def location_provider():
 
 
 def shutdown_all() -> None:
-    for p in (_tiles, _weather, _buildings, _nuisance, _shelters, _location):
+    for p in (_tiles, _weather, _buildings, _nuisance, _location,
+              *_shelters.values()):
         if p is not None:
             try:
                 p.shutdown()

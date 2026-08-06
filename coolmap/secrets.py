@@ -30,6 +30,7 @@ _ENV = {
     "gemini_api_key": "COOLMAP_GEMINI_KEY",
     "kma_service_key": "COOLMAP_KMA_KEY",
     "shelter_service_key": "COOLMAP_SHELTER_KEY",
+    "cold_shelter_service_key": "COOLMAP_COLD_SHELTER_KEY",
 }
 
 

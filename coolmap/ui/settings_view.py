@@ -207,7 +207,9 @@ class SettingsView(QWidget):
 
         self.key_edits = {}
         self._key_row(body, "무더위쉼터", "shelter_service_key",
-                      "safetydata.go.kr 인증키 — 전국 쉼터 목록")
+                      "safetydata.go.kr 인증키 — 냉방 모드 쉼터")
+        self._key_row(body, "한파쉼터", "cold_shelter_service_key",
+                      "safetydata.go.kr 인증키 — 난방 모드 쉼터")
         self._key_row(body, "기상청", "kma_service_key",
                       "data.go.kr 일반 인증키 — 실시간 날씨")
         self._key_row(body, "Gemini", "gemini_api_key",
@@ -371,8 +373,8 @@ class SettingsView(QWidget):
             edit.clear()
 
         # 새 키로 즉시 다시 시도
-        if "shelter_service_key" in changed:
-            sp = providers.shelter_provider()
+        if changed.keys() & {"shelter_service_key", "cold_shelter_service_key"}:
+            sp = providers.shelter_provider(self.state.mode)
             try:
                 sp.progress.disconnect(self._on_sync_progress)
                 sp.ready.disconnect(self._on_sync_done)
@@ -389,7 +391,7 @@ class SettingsView(QWidget):
 
     def _on_sync_done(self) -> None:
         """동기화가 끝나면 성공/실패를 분명히 알린다."""
-        sp = providers.shelter_provider()
+        sp = providers.shelter_provider(self.state.mode)
         self.sync_btn.setText("쉼터 데이터 새로 받기")
         self.sync_btn.setEnabled(True)
         p = self.state.palette
@@ -421,7 +423,7 @@ class SettingsView(QWidget):
         self.loc_value.setText(f"확인 실패 — {msg}")
 
     def _sync_shelters(self) -> None:
-        sp = providers.shelter_provider()
+        sp = providers.shelter_provider(self.state.mode)
         try:
             sp.progress.disconnect(self._on_sync_progress)
             sp.ready.disconnect(self._on_sync_done)
@@ -462,7 +464,7 @@ class SettingsView(QWidget):
             color = p.good if ok else p.text_mute
             return f"<span style='color:{color};'>●</span> {label}"
 
-        sp = providers.shelter_provider()
+        sp = providers.shelter_provider(self.state.mode)
         from ..catalog import source_label
 
         if sp.syncing:

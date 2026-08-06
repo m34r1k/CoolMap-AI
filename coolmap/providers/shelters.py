@@ -15,6 +15,7 @@ import time
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 
 from PySide6.QtCore import QObject, Signal
 
@@ -23,10 +24,78 @@ from ..geo import haversine
 from ..models import COOLING, HEATING, Place
 from ..paths import cache_dir
 
-SERVICE_ID = "DSSP-IF-10942"
 BASE = "https://www.safetydata.go.kr/V2/api"
 PAGE_SIZE = 1000
 CACHE_TTL = 14 * 24 * 3600      # 2주
+
+
+@dataclass(frozen=True)
+class Dataset:
+    """쉼터 데이터셋 정의.
+
+    무더위쉼터와 한파쉼터는 같은 플랫폼인데도 필드명이 전혀 다르다
+    (RSTR_NM vs REARE_NM, LA/LO vs LAT/LOT ...). 여기서 원본 필드명을
+    공통 이름으로 매핑해 두고, 나머지 로직은 공통 형태만 다룬다.
+    """
+
+    service_id: str
+    secret_key: str
+    mode: str
+    label: str
+    id_prefix: str
+    fields: dict[str, str]
+
+    @property
+    def keep(self) -> tuple[str, ...]:
+        return tuple(self.fields.values())
+
+
+#: 행정안전부 무더위쉼터 (냉방)
+HEAT_SHELTERS = Dataset(
+    service_id="DSSP-IF-10942",
+    secret_key="shelter_service_key",
+    mode=COOLING,
+    label="행정안전부 무더위쉼터",
+    id_prefix="H",
+    fields={
+        "no": "RSTR_FCLTY_NO", "name": "RSTR_NM",
+        "lat": "LA", "lon": "LO",
+        "road_addr": "RN_DTL_ADRES", "addr": "DTL_ADRES",
+        "type": "FCLTY_TY", "capacity": "USE_PSBL_NMPR", "area": "AR",
+        "ac": "COLR_HOLD_ARCNDTN", "fan": "COLR_HOLD_ELEFN",
+        "wkday_from": "WKDAY_OPER_BEGIN_TIME", "wkday_to": "WKDAY_OPER_END_TIME",
+        "weekend_open": "CHCK_MATTER_WKEND_HDAY_OPN_AT",
+        "night_open": "CHCK_MATTER_NIGHT_OPN_AT",
+        "stay_ok": "CHCK_MATTER_STAYNG_PSBL_AT",
+    },
+)
+
+#: 행정안전부 한파쉼터 (난방)
+COLD_SHELTERS = Dataset(
+    service_id="DSSP-IF-10804",
+    secret_key="cold_shelter_service_key",
+    mode=HEATING,
+    label="행정안전부 한파쉼터",
+    id_prefix="C",
+    fields={
+        "no": "REARE_FCLT_NO", "name": "REARE_NM",
+        "lat": "LAT", "lon": "LOT",
+        "road_addr": "RONA_DADDR", "addr": "DADDR",
+        "type": "FCLT_TYPE", "capacity": "UTZTN_PSBLTY_TNOP",
+        "wkday_from": "WKDY_OPER_BGNG_HR", "wkday_to": "WKDY_OPER_END_HR",
+        "sat_from": "STDY_OPER_BGNG_HR", "sat_to": "STDY_OPER_END_HR",
+        "sun_from": "SNDY_OPER_BGNG_HR", "sun_to": "SNDY_OPER_END_HR",
+        "holiday_from": "LHLDY_OPER_BGNG_HR", "holiday_to": "LHLDY_OPER_END_HR",
+        "remark": "RMRK",
+    },
+)
+
+DATASETS = {COOLING: HEAT_SHELTERS, HEATING: COLD_SHELTERS}
+
+
+def normalize(raw: dict, ds: Dataset) -> dict:
+    """원본 레코드를 공통 필드 이름으로 변환."""
+    return {canon: raw.get(src) for canon, src in ds.fields.items()}
 
 #: 재시도해도 소용없는 응답 코드 → 즉시 중단한다.
 #: 특히 22(일일 한도 초과)에서 재시도하면 남은 한도까지 갉아먹는다.
@@ -79,15 +148,26 @@ _NAME_RULES = [
     (("도서관",), "library"),
     (("경로당", "마을회관", "노인정", "어르신", "경로복지", "사랑채"), "senior"),
     (("보건진료소", "진료소", "보건지소", "보건소", "병원", "의원"), "hospital"),
+    # '○○동행정복지센터' 는 주민센터다. 아래 center 의 '복지센터' 에 먼저 걸리지
+    # 않도록 반드시 위에 둔다.
+    (("행정복지센터", "주민센터", "주민자치센터"), "gov"),
     (("복지관", "복지회관", "복지센터", "문화의집", "체육센터", "체육관", "청소년센터",
       "문화센터", "기념관", "박물관", "미술관", "문예회관", "평생학습",
       "이동노동자", "교회", "성당", "사찰"), "center"),
-    (("주민센터", "행정복지센터", "구청", "시청", "군청", "면사무소", "읍사무소", "동사무소",
+    (("구청", "시청", "군청", "면사무소", "읍사무소", "동사무소",
       "민원센터", "우체국", "청사"), "gov"),
     (("전통시장", "상가"), "market"),
     # '쉼터' 는 실내에도 흔히 붙으므로 야외 판정에서 제외한다
     (("야외", "공원", "정자", "그늘막", "파고라", "물놀이"), "park"),
 ]
+
+# 한파쉼터에는 난방설비 정보가 없어 유형만으로 추정한다
+_ASSUMED_INDOOR_HEAT = {
+    "senior": 24.5,   # 경로당은 대체로 따뜻하게 유지한다
+    "gov": 23.0, "library": 23.0, "center": 23.5, "hospital": 23.5,
+    "bank": 23.0, "mart": 22.5, "store": 22.5, "market": 21.5,
+    "busstop": 18.0,  # 밀폐형 스마트쉼터 기준
+}
 
 # 냉방설비 정보가 비어 있을 때 쓰는 유형별 실내 온도 추정치
 _ASSUMED_INDOOR = {
@@ -98,10 +178,14 @@ _ASSUMED_INDOOR = {
 
 
 def _hhmm_to_hour(v) -> int | None:
+    """'0900' / '090000' 둘 다 시(hour)로 바꾼다.
+
+    한파쉼터는 평일은 4자리, 토·일은 6자리로 섞여 들어온다.
+    """
     if not v:
         return None
     s = str(v).strip()
-    if len(s) != 4 or not s.isdigit():
+    if len(s) not in (4, 6) or not s.isdigit():
         return None
     h = int(s[:2])
     return h if 0 <= h <= 24 else None
@@ -115,41 +199,50 @@ def _classify(name: str, fclty_ty: str) -> str:
             TY_SENIOR: "senior", TY_BANK: "bank"}.get(fclty_ty, "center")
 
 
-def record_to_place(r: dict, mode: str) -> Place | None:
-    """API 레코드 → Place. 좌표가 없으면 버린다."""
+def record_to_place(rec: dict, mode: str) -> Place | None:
+    """정규화된 레코드 → Place. 좌표가 없으면 버린다."""
     try:
-        lat = float(r["LA"])
-        lon = float(r["LO"])
+        lat = float(rec["lat"])
+        lon = float(rec["lon"])
     except (KeyError, TypeError, ValueError):
         return None
     if not (33.0 <= lat <= 39.5 and 124.0 <= lon <= 132.0):
         return None
 
-    name = (r.get("RSTR_NM") or "무더위쉼터").strip()
-    ty = str(r.get("FCLTY_TY") or TY_SENIOR)
+    cold = mode == HEATING
+    name = (rec.get("name") or ("한파쉼터" if cold else "무더위쉼터")).strip()
+    ty = str(rec.get("type") or TY_SENIOR)
     category = _classify(name, ty)
 
-    ac = r.get("COLR_HOLD_ARCNDTN") or 0
-    fan = r.get("COLR_HOLD_ELEFN") or 0
+    ac = rec.get("ac") or 0
+    fan = rec.get("fan") or 0
 
     # 버스정류장은 두 종류다.
     #  · 냉방설비가 있는 '스마트쉼터/스마트승강장' — 밀폐형 부스라 실내로 본다
     #  · 그늘막만 있는 일반 정류장 — 야외
     outdoor = ty == TY_OUTDOOR or category == "park" or (category == "busstop" and not ac)
-    people = r.get("USE_PSBL_NMPR") or 0
-    area = r.get("AR") or 0
+    people = rec.get("capacity") or 0
+    area = rec.get("area") or 0
 
     d_from, d_to, d_weekend_closed = _DEFAULT_HOURS.get(ty, (9, 18, False))
-    open_from = _hhmm_to_hour(r.get("WKDAY_OPER_BEGIN_TIME"))
-    open_to = _hhmm_to_hour(r.get("WKDAY_OPER_END_TIME"))
+    open_from = _hhmm_to_hour(rec.get("wkday_from"))
+    open_to = _hhmm_to_hour(rec.get("wkday_to"))
     if open_from is None:
         open_from = d_from
     if open_to is None or open_to <= open_from:
         open_to = max(d_to, open_from + 1)
 
-    weekend_flag = r.get("CHCK_MATTER_WKEND_HDAY_OPN_AT")
-    weekend_closed = (weekend_flag == "N") if weekend_flag else d_weekend_closed
-    night = r.get("CHCK_MATTER_NIGHT_OPN_AT") == "Y"
+    if cold:
+        # 한파쉼터는 요일별 운영시간이 따로 있다 → 토·일 값이 있으면 주말도 연다
+        sat = _hhmm_to_hour(rec.get("sat_to"))
+        sun = _hhmm_to_hour(rec.get("sun_to"))
+        weekend_closed = not (sat or sun)
+        night = False
+        weekend_flag = "Y" if (sat or sun) else "N"
+    else:
+        weekend_flag = rec.get("weekend_open")
+        weekend_closed = (weekend_flag == "N") if weekend_flag else d_weekend_closed
+        night = rec.get("night_open") == "Y"
     # 0000~2400 처럼 하루 전체가 적힌 경우는 상시 개방으로 본다
     always_open = (outdoor or category == "busstop"
                    or open_to - open_from >= 23
@@ -162,52 +255,57 @@ def record_to_place(r: dict, mode: str) -> Place | None:
     if outdoor:
         indoor_cool = 29.0
     else:
-        base = _ASSUMED_INDOOR.get(category, 26.0)
-        indoor_cool = base - (1.0 if ac else 0.0)
+        indoor_cool = _ASSUMED_INDOOR.get(category, 26.0) - (1.0 if ac else 0.0)
+    indoor_heat = 5.0 if outdoor else _ASSUMED_INDOOR_HEAT.get(category, 23.0)
 
     airflow = "양호" if ac else ("보통" if fan else "정보 없음")
 
     amenities = []
-    amenities.append("냉방설비 있음" if has_cooling else "냉방설비 정보 없음")
+    if cold:
+        amenities.append("난방설비 정보 없음")
+    else:
+        amenities.append("냉방설비 있음" if has_cooling else "냉방설비 정보 없음")
     if area:
         amenities.append(f"{area}㎡")
     if night:
         amenities.append("야간 개방")
     if weekend_flag == "Y":
         amenities.append("주말·공휴일 개방")
-    if r.get("CHCK_MATTER_STAYNG_PSBL_AT") == "Y":
+    if rec.get("stay_ok") == "Y":
         amenities.append("숙박 가능")
+    remark = (rec.get("remark") or "").strip()
+    if remark:
+        amenities.append(remark)
     amenities.append("실내 온도는 추정치")
 
     seats = max(4, int(people) if people else 20)
-    address = (r.get("RN_DTL_ADRES") or r.get("DTL_ADRES") or "").strip()
+    address = (rec.get("road_addr") or rec.get("addr") or "").strip()
 
-    # 난방 모드에서는 '무더위쉼터로 지정된 실내시설'로만 취급한다 (한파쉼터 미검증)
-    if mode == HEATING:
-        official = False
-        summary = (f"{'야외' if outdoor else '실내'} 무더위쉼터로 지정된 시설입니다. "
-                   "한파쉼터 지정 여부는 별도 데이터가 필요해 확인되지 않았습니다.")
-        why = "무더위쉼터 데이터 기준으로 표시한 실내시설입니다. 방문 전 운영 여부를 확인하세요."
+    official = True
+    if cold:
+        summary = ("행정안전부 지정 한파쉼터입니다. "
+                   + (f"약 {people}명이 이용할 수 있습니다." if people
+                      else "한파 시 개방되는 실내 공간입니다."))
+        why = "공식 지정 한파쉼터라 무료이며, 추위를 피하러 들어가도 눈치가 보이지 않습니다."
+    elif category == "busstop":
+        summary = ("행정안전부 지정 무더위쉼터로 등록된 버스정류장입니다. "
+                   + ("냉방설비를 갖춘 밀폐형 스마트쉼터입니다."
+                      if ac else "그늘막 형태의 야외 정류장입니다."))
+        why = "공식 지정 무더위쉼터라 무료이며, 이용에 눈치가 보이지 않습니다."
     else:
-        official = True
-        if category == "busstop":
-            summary = ("행정안전부 지정 무더위쉼터로 등록된 버스정류장입니다. "
-                       + ("냉방설비를 갖춘 밀폐형 스마트쉼터입니다."
-                          if ac else "그늘막 형태의 야외 정류장입니다."))
-        else:
-            summary = ("행정안전부 지정 무더위쉼터입니다. "
-                       + ("냉방설비를 갖추고 있습니다." if has_cooling
-                          else "냉방설비 정보는 등록되어 있지 않습니다."))
+        summary = ("행정안전부 지정 무더위쉼터입니다. "
+                   + ("냉방설비를 갖추고 있습니다." if has_cooling
+                      else "냉방설비 정보는 등록되어 있지 않습니다."))
         why = "공식 지정 무더위쉼터라 무료이며, 이용에 눈치가 보이지 않습니다."
 
     return Place(
-        id=f"H{r.get('RSTR_FCLTY_NO')}",
+        id=f"{'C' if cold else 'H'}{abs(int(rec.get('no') or 0))}",
         name=name,
         category=category,
         address=address,
         lat=lat,
         lon=lon,
-        modes=(COOLING,) if mode == COOLING else (HEATING,),
+        modes=(HEATING,) if cold else (COOLING,),
         summary=summary,
         why=why,
         # 층·호수 정보가 없으므로 화살표 대신 건물 전체를 하이라이트한다
@@ -223,7 +321,7 @@ def record_to_place(r: dict, mode: str) -> Place | None:
         capacity=max(seats, int(people) if people else 40),
         base_crowd=0.3,
         indoor_cool=indoor_cool,
-        indoor_heat=23.0 if not outdoor else 5.0,
+        indoor_heat=indoor_heat,
         humidity=50,
         airflow=airflow,
         aqi=28,
@@ -237,17 +335,18 @@ def record_to_place(r: dict, mode: str) -> Place | None:
 
 
 class ShelterProvider(QObject):
-    """무더위쉼터 전량 동기화 + 반경 조회."""
+    """쉼터 데이터셋 전량 동기화 + 반경 조회 (무더위/한파 공용)."""
 
     progress = Signal(int, int)     # (받은 건수, 전체)
     ready = Signal()
 
-    def __init__(self, parent: QObject | None = None):
+    def __init__(self, dataset: Dataset, parent: QObject | None = None):
         super().__init__(parent)
+        self.dataset = dataset
         self._lock = threading.Lock()
         self._records: list[dict] = []
         self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="shelter")
-        self._file = cache_dir("shelters") / f"{SERVICE_ID}.json"
+        self._file = cache_dir("shelters") / f"{dataset.service_id}.json"
         self._syncing = False
         self._error = ""
         self._fetched_at = 0.0
@@ -258,7 +357,11 @@ class ShelterProvider(QObject):
     # -- 상태 -------------------------------------------------------------
     @property
     def has_key(self) -> bool:
-        return bool(secrets.get("shelter_service_key"))
+        return bool(secrets.get(self.dataset.secret_key))
+
+    @property
+    def label(self) -> str:
+        return self.dataset.label
 
     @property
     def count(self) -> int:
@@ -285,8 +388,21 @@ class ShelterProvider(QObject):
     def _load_cache(self) -> None:
         try:
             raw = json.loads(self._file.read_text(encoding="utf-8"))
+            records = raw["records"]
+            # 예전 캐시는 원본 필드명(LA/LO ...)으로 저장돼 있다.
+            # 다시 내려받으면 API 한도를 쓰므로 그 자리에서 변환한다.
+            if records and "lat" not in records[0]:
+                records = [{k: v for k, v in normalize(r, self.dataset).items()
+                            if v is not None} for r in records]
+                with self._lock:
+                    self._records = records
+                self._fetched_at = raw.get("fetched_at", 0)
+                self._missing_pages = raw.get("missing_pages", [])
+                self._total_expected = raw.get("total_expected", 0)
+                self._save_cache()
+                return
             with self._lock:
-                self._records = raw["records"]
+                self._records = records
             self._fetched_at = raw.get("fetched_at", 0)
             self._missing_pages = raw.get("missing_pages", [])
             self._total_expected = raw.get("total_expected", 0)
@@ -320,12 +436,12 @@ class ShelterProvider(QObject):
 
     def _fetch_page(self, page: int) -> tuple[list[dict], int]:
         q = urllib.parse.urlencode({
-            "serviceKey": secrets.get("shelter_service_key"),
+            "serviceKey": secrets.get(self.dataset.secret_key),
             "returnType": "json",
             "pageNo": page,
             "numOfRows": PAGE_SIZE,
         })
-        req = urllib.request.Request(f"{BASE}/{SERVICE_ID}?{q}",
+        req = urllib.request.Request(f"{BASE}/{self.dataset.service_id}?{q}",
                                      headers={"User-Agent": "CoolMapAI/1.0"})
         with urllib.request.urlopen(req, timeout=45) as r:
             d = json.loads(r.read().decode("utf-8", "replace"))
@@ -339,15 +455,13 @@ class ShelterProvider(QObject):
             raise RuntimeError(f"[{code}] {msg}")
         return d.get("body") or [], int(d.get("totalCount") or 0)
 
-    #: 캐시에 담을 필드만 남겨 용량을 줄인다
-    _KEEP = ("RSTR_FCLTY_NO", "RSTR_NM", "LA", "LO", "RN_DTL_ADRES", "DTL_ADRES",
-             "FCLTY_TY", "USE_PSBL_NMPR", "AR", "COLR_HOLD_ARCNDTN", "COLR_HOLD_ELEFN",
-             "WKDAY_OPER_BEGIN_TIME", "WKDAY_OPER_END_TIME",
-             "CHCK_MATTER_WKEND_HDAY_OPN_AT", "CHCK_MATTER_NIGHT_OPN_AT",
-             "CHCK_MATTER_STAYNG_PSBL_AT")
-
     def _trim(self, body: list[dict]) -> list[dict]:
-        return [{k: r.get(k) for k in self._KEEP if r.get(k) is not None} for r in body]
+        """캐시에 담을 필드만 남기고, 곧바로 공통 이름으로 정규화해 둔다."""
+        out = []
+        for raw in body:
+            rec = normalize(raw, self.dataset)
+            out.append({k: v for k, v in rec.items() if v is not None})
+        return out
 
     def _do_sync(self) -> None:
         """전량 동기화.
@@ -441,7 +555,7 @@ class ShelterProvider(QObject):
         near = []
         for r in records:
             try:
-                la, lo = float(r["LA"]), float(r["LO"])
+                la, lo = float(r["lat"]), float(r["lon"])
             except (KeyError, TypeError, ValueError):
                 continue
             if abs(la - lat0) > dlat or abs(lo - lon0) > dlon:
@@ -454,7 +568,7 @@ class ShelterProvider(QObject):
         places: list[Place] = []
         seen: set[str] = set()
         for _d, r in near[:limit * 2]:
-            p = record_to_place(r, mode)
+            p = record_to_place(r, self.dataset.mode)
             if p and p.id not in seen:
                 seen.add(p.id)
                 places.append(p)
