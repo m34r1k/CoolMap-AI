@@ -16,7 +16,7 @@ from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 
 from PySide6.QtCore import QObject, Signal
-from PySide6.QtGui import QColor, QImage, QPainter, QPixmap
+from PySide6.QtGui import QColor, QImage, QPixmap, qRgb
 
 from .. import __version__
 from ..paths import cache_dir
@@ -36,32 +36,56 @@ SOURCES = {
 }
 
 MEM_CACHE_MAX = 320
-TONE_LIGHTEN = 285      # 클수록 지도가 밝아진다 (도로·지명 가독성 ↔ 마커 대비)
 
 
-def _dark_transform(img: QImage, accent: QColor, tone: QColor) -> QImage:
-    """밝은 OSM 타일을 다크 테마로 변환.
+#: 모드별 다크맵 색 램프 (어두운 배경색 → 밝은 선/글자색)
+#: 원본 OSM 타일의 밝기를 뒤집어 이 두 색 사이로 재배치한다.
+RAMPS = {
+    "cooling": ("#070E1A", "#A8C8E4"),
+    "heating": ("#140809", "#F0C4B4"),
+}
 
-    반전 → 탈채도(반전 색상이 기괴해지므로) → 테마 톤으로 멀티플라이 → 강조색 미세 틴트.
-    tone 을 모드별 배경색으로 넘기면 냉방은 푸르게, 난방은 붉게 물든다.
+#: 밝기 재배치 구간과 곡선.
+#: 감마를 1 보다 크게 두면 넓은 지면(원본의 밝은 부분)은 어둡게 눌리고
+#: 도로·글자(원본의 어두운 선)는 밝게 남아, 다크 UI 와 어울리면서도 잘 읽힌다.
+#: (1 미만으로 두면 배경까지 들려 전체가 뿌옇게 된다)
+RAMP_LO = 0.04
+RAMP_HI = 1.0
+RAMP_GAMMA = 1.35
+
+
+def _color_table(mode: str) -> list[int]:
+    """밝기(0~255) → 다크맵 색상 256단계 룩업 테이블.
+
+    픽셀별 파이썬 연산은 너무 느리므로, 그레이스케일로 바꾼 뒤
+    Qt 의 인덱스 컬러 테이블로 한 번에 매핑한다.
     """
-    out = img.convertToFormat(QImage.Format_ARGB32)
-    out.invertPixels(QImage.InvertRgb)
+    dark, light = RAMPS.get(mode, RAMPS["cooling"])
+    d, l = QColor(dark), QColor(light)
+    table = []
+    for i in range(256):
+        v = 1.0 - i / 255.0                 # 반전: 밝은 지면 → 어둡게, 검은 글자 → 밝게
+        v = v ** RAMP_GAMMA
+        v = RAMP_LO + v * (RAMP_HI - RAMP_LO)
+        r = int(d.red() + (l.red() - d.red()) * v)
+        g = int(d.green() + (l.green() - d.green()) * v)
+        b = int(d.blue() + (l.blue() - d.blue()) * v)
+        table.append(qRgb(min(r, 255), min(g, 255), min(b, 255)))
+    return table
 
-    gray = out.convertToFormat(QImage.Format_Grayscale8).convertToFormat(QImage.Format_ARGB32)
 
-    p = QPainter(out)
-    p.setOpacity(0.80)
-    p.drawImage(0, 0, gray)                     # 탈채도
-    p.setOpacity(1.0)
-    p.setCompositionMode(QPainter.CompositionMode_Multiply)
-    p.fillRect(out.rect(), QColor(tone).lighter(TONE_LIGHTEN))   # 모드 톤 입히기 + 전체 감광
-    p.setCompositionMode(QPainter.CompositionMode_SourceOver)
-    tint = QColor(accent)
-    tint.setAlpha(16)
-    p.fillRect(out.rect(), tint)
-    p.end()
-    return out
+def _dark_transform(img: QImage, table: list[int]) -> QImage:
+    """밝은 OSM 타일 → 다크맵.
+
+    이전에는 반전 후 멀티플라이로 눌렀는데, 전체가 뭉개져 도로와 지명이
+    거의 안 보였다. 지금은 밝기를 뽑아 색 램프로 재배치해서
+    배경은 어둡게 두되 선과 글자는 확실히 띄운다.
+    """
+    gray = img.convertToFormat(QImage.Format_Grayscale8)
+    indexed = QImage(bytes(gray.constBits()), gray.width(), gray.height(),
+                     gray.bytesPerLine(), QImage.Format_Indexed8)
+    indexed.setColorTable(table)
+    return indexed.convertToFormat(QImage.Format_ARGB32)
 
 
 class TileProvider(QObject):
@@ -76,8 +100,8 @@ class TileProvider(QObject):
         self._pending: set[tuple] = set()
         self._lock = threading.Lock()
         self._pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="tile")
-        self._accent = QColor("#22D3EE")
-        self._tone = QColor("#0A1220")
+        self._mode = "cooling"
+        self._table = _color_table("cooling")
         self._dark = True
         self._enabled = True
         self._failures = 0
@@ -96,12 +120,12 @@ class TileProvider(QObject):
     def attribution(self) -> str:
         return self.meta["attribution"]
 
-    def set_theme(self, accent: str, tone: str) -> None:
+    def set_mode(self, mode: str) -> None:
         """모드 색상 적용. 변환 결과가 바뀌므로 메모리 캐시를 비운다."""
-        if QColor(accent) == self._accent and QColor(tone) == self._tone:
+        if mode == self._mode:
             return
-        self._accent = QColor(accent)
-        self._tone = QColor(tone)
+        self._mode = mode
+        self._table = _color_table(mode)
         with self._lock:
             self._mem.clear()
         self.tileReady.emit()
@@ -155,7 +179,7 @@ class TileProvider(QObject):
 
     def _store(self, key: tuple, img: QImage) -> QPixmap:
         if self._dark and self.meta.get("dark"):
-            img = _dark_transform(img, self._accent, self._tone)
+            img = _dark_transform(img, self._table)
         pm = QPixmap.fromImage(img)
         with self._lock:
             self._mem[key] = pm

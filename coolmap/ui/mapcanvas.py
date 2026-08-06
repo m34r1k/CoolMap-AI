@@ -81,7 +81,7 @@ class MapCanvas(QWidget):
 
     def apply_palette(self, p: Palette) -> None:
         self._palette = p
-        self.tiles.set_theme(p.accent, p.map_bg)
+        self.tiles.set_mode(p.key)
         self.update()
 
     def set_selected(self, place_id: str | None) -> None:
@@ -388,17 +388,20 @@ class MapCanvas(QWidget):
             # 건물 데이터가 없거나 줌아웃 상태 → 원형 하이라이트
             r = max(13.0, min(34.0, 26.0 / max(self.meters_per_pixel(), 0.05)))
             r = max(13.0, min(40.0, r))
-            for w, alpha in ((13, 20), (8, 30), (4, 48)):
+            p.setPen(QPen(QColor(0, 0, 0, 120), 4.0))
+            p.setBrush(Qt.NoBrush)
+            p.drawEllipse(center, r, r)
+            for w, alpha in ((13, 26), (8, 38), (4, 58)):
                 pen = QPen(QColor(color.red(), color.green(), color.blue(), alpha))
                 pen.setWidthF(w)
                 p.setPen(pen)
                 p.setBrush(Qt.NoBrush)
                 p.drawEllipse(center, r, r)
             fill = QColor(color)
-            fill.setAlpha(52)
+            fill.setAlpha(66)
             p.setBrush(fill)
             pen = QPen(color)
-            pen.setWidthF(2.0 if selected else 1.6)
+            pen.setWidthF(2.4 if selected else 1.9)
             p.setPen(pen)
             p.drawEllipse(center, r, r)
             return QPointF(center.x(), center.y() - r)
@@ -408,7 +411,15 @@ class MapCanvas(QWidget):
         pulse = (math.sin(self._phase * 1.6) * 0.5 + 0.5) if selected else 0.5
         strength = 1.0 if (selected or hovered) else 0.72
 
-        for w, alpha in ((14, 16), (9, 26), (5, 44)):
+        # 지도 위 어디서든 도형이 분리돼 보이도록 어두운 테두리를 먼저 깐다
+        shade = QPen(QColor(0, 0, 0, 120))
+        shade.setWidthF(4.5)
+        shade.setJoinStyle(Qt.RoundJoin)
+        p.setPen(shade)
+        p.setBrush(Qt.NoBrush)
+        p.drawPolygon(poly)
+
+        for w, alpha in ((14, 22), (9, 34), (5, 54)):
             pen = QPen(QColor(color.red(), color.green(), color.blue(),
                               int(alpha * strength)))
             pen.setWidthF(w)
@@ -418,10 +429,10 @@ class MapCanvas(QWidget):
             p.drawPolygon(poly)
 
         fill = QColor(color)
-        fill.setAlpha(int(58 + 26 * pulse) if selected else 46)
+        fill.setAlpha(int(74 + 28 * pulse) if selected else 60)
         p.setBrush(fill)
         pen = QPen(color)
-        pen.setWidthF(2.2 if selected else 1.7)
+        pen.setWidthF(2.6 if selected else 2.0)
         pen.setJoinStyle(Qt.RoundJoin)
         p.setPen(pen)
         p.drawPolygon(poly)
@@ -472,11 +483,17 @@ class MapCanvas(QWidget):
                        mid.y() + normal.y() / length * 16)
         path.quadTo(ctrl, target)
 
-        glow = QPen(QColor(color.red(), color.green(), color.blue(), 60))
-        glow.setWidthF(6.5)
+        shade = QPen(QColor(0, 0, 0, 130))
+        shade.setWidthF(6.0)
+        shade.setCapStyle(Qt.RoundCap)
+        p.setPen(shade)
+        p.setBrush(Qt.NoBrush)
+        p.drawPath(path)
+
+        glow = QPen(QColor(color.red(), color.green(), color.blue(), 70))
+        glow.setWidthF(7.0)
         glow.setCapStyle(Qt.RoundCap)
         p.setPen(glow)
-        p.setBrush(Qt.NoBrush)
         p.drawPath(path)
 
         pen = QPen(color)
@@ -542,19 +559,27 @@ class MapCanvas(QWidget):
         taken.append(rect)
 
         color = self._accent_for(pal, a)
+        # 지도 위에 얹히므로 살짝 그림자를 깔아 띄운다
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(0, 0, 0, 90))
+        p.drawRoundedRect(rect.adjusted(1.5, 2.0, 1.5, 2.5), 10, 10)
+
         bg = QColor(pal.panel)
-        bg.setAlpha(246)
+        bg.setAlpha(252)
         p.setBrush(bg)
         pen = QPen(color if (selected or hovered) else QColor(pal.border))
-        pen.setWidthF(1.6 if selected else 1.1)
+        pen.setWidthF(1.8 if selected else 1.3)
         p.setPen(pen)
         p.drawRoundedRect(rect, 10, 10)
 
-        pen = QPen(QColor(color.red(), color.green(), color.blue(), 170))
-        pen.setWidthF(1.4)
+        leader_a = QPointF(rect.center().x(), rect.bottom())
+        leader_b = QPointF(anchor.x(), anchor.y() - 3)
+        p.setPen(QPen(QColor(0, 0, 0, 110), 3.0))
+        p.drawLine(leader_a, leader_b)
+        pen = QPen(QColor(color.red(), color.green(), color.blue(), 190))
+        pen.setWidthF(1.5)
         p.setPen(pen)
-        p.drawLine(QPointF(rect.center().x(), rect.bottom()),
-                   QPointF(anchor.x(), anchor.y() - 3))
+        p.drawLine(leader_a, leader_b)
 
         icons.draw_icon(p, place.icon,
                         QRectF(rect.left() + 9, rect.top() + 11, 15, 15), color, 2.0)
@@ -578,9 +603,12 @@ class MapCanvas(QWidget):
         self._hit_zones.append((rect, place.id))
 
     def _draw_mini_dot(self, p: QPainter, pal: Palette, a: Analysis, anchor: QPointF) -> None:
-        p.setPen(QPen(QColor(pal.map_bg), 2))
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(0, 0, 0, 120))
+        p.drawEllipse(anchor, 7.5, 7.5)
+        p.setPen(QPen(QColor(pal.bg), 2))
         p.setBrush(self._accent_for(pal, a))
-        p.drawEllipse(anchor, 5.0, 5.0)
+        p.drawEllipse(anchor, 5.5, 5.5)
 
     def _draw_user(self, p: QPainter, pal: Palette) -> None:
         pos = self.to_screen(*self.state.origin)
