@@ -324,7 +324,8 @@ class HomeView(QWidget):
         hour, minute, weekday = state.now()
 
         places = places_for(state.mode, origin=state.origin,
-                            radius_m=float(state.get('search_radius')))
+                            radius_m=float(state.get('search_radius')),
+                            include_ai=bool(state.get("ai_candidates")))
         analyses = analyze_all(places, state.mode, hour, minute, weekday,
                                state.target_temp, origin=state.origin)
         if state.get("only_official"):

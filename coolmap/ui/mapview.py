@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import icons
+from .. import icons, providers
 from ..ai import CROWD_ENABLED, Analysis, active_events, analyze_all, rank
 from ..config import MARKER_ARROW, MARKER_AUTO, MARKER_HIGHLIGHT, AppState
 from ..catalog import places_for
@@ -104,7 +104,8 @@ class PlaceRow(QFrame):
         temp = f"실내 {a.indoor:.0f}°C" if a.crowd.open_now else "운영 종료"
         marker = "화살표" if a.place.inside_mall else "건물"
         self._name_text = a.place.name
-        self._meta_text = f"{temp} · 도보 {a.walk_min}분 · {marker}"
+        tag = "AI 추정 · " if a.place.ai_guess else ""
+        self._meta_text = f"{tag}{temp} · 도보 {a.walk_min}분 · {marker}"
         self._apply_texts()
         if CROWD_ENABLED:
             cc = crowd_color(p, a.crowd.key)
@@ -167,8 +168,10 @@ class MapLegend(Card):
 
         self.hl_row, self.hl_label = self._legend_row("건물 전체 하이라이트")
         self.ar_row, self.ar_label = self._legend_row("상가 내 업소 — 화살표 지시")
+        self.ai_row, self.ai_label = self._legend_row("점선 — AI 추정 (공식 쉼터 아님)")
         lay.addWidget(self.hl_row)
         lay.addWidget(self.ar_row)
+        lay.addWidget(self.ai_row)
 
         tip = QLabel("우클릭 — 현재 위치 직접 지정")
         tip.setObjectName("mute")
@@ -197,11 +200,19 @@ class MapLegend(Card):
             self.combo.blockSignals(True)
             self.combo.setCurrentIndex(idx)
             self.combo.blockSignals(False)
+        # AI 추정을 끄면 점선 마커 자체가 안 나오므로 범례도 감춘다
+        self.ai_row.setVisible(
+            bool(self.state.get("ai_candidates"))
+            and providers.candidate_provider().has_key
+        )
 
     def apply_palette(self, p: Palette) -> None:
         self.icon.set_color(p.accent)
         self.hl_row.swatch.setStyleSheet(  # type: ignore[attr-defined]
             f"background: {p.accent_soft}; border: 1px solid {p.accent}; border-radius: 4px;"
+        )
+        self.ai_row.swatch.setStyleSheet(  # type: ignore[attr-defined]
+            f"background: transparent; border: 1px dashed {p.accent}; border-radius: 4px;"
         )
         self.ar_row.swatch.setStyleSheet(  # type: ignore[attr-defined]
             "background: transparent; border: none;"
@@ -269,9 +280,9 @@ class SelectionPanel(Card):
         self.icon.set_color(p.accent)
         self.name.setText(a.place.name)
         marker = "화살표 지시" if a.place.inside_mall else "건물 하이라이트"
-        self.unit.setText(
-            f"{a.place.unit or a.place.address} · {marker}"
-        )
+        where = a.place.unit or a.place.address or a.place.category_label
+        tag = f"AI 추정 {a.place.ai_confidence}% · " if a.place.ai_guess else ""
+        self.unit.setText(f"{tag}{where} · {marker}")
         self.temp_pill.set_text(f"실내 {a.indoor:.0f}°C" if a.crowd.open_now else "운영 종료")
         self.temp_pill.set_colors(p.accent, p.card)
         if CROWD_ENABLED:
@@ -447,7 +458,8 @@ class MapView(QWidget):
         p = state.palette
         hour, minute, weekday = state.now()
         places = places_for(state.mode, origin=state.origin,
-                            radius_m=float(state.get('search_radius')))
+                            radius_m=float(state.get('search_radius')),
+                            include_ai=bool(state.get("ai_candidates")))
         analyses = analyze_all(places, state.mode, hour, minute, weekday,
                                state.target_temp, origin=state.origin)
         if state.get("only_official"):

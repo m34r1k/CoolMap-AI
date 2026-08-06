@@ -85,9 +85,11 @@ class DetailView(QWidget):
         self.cat_pill = Pill("-", "building")
         self.dist_pill = Pill("-", "walk", style="outline")
         self.official_pill = Pill("공식 지정 쉼터", "check_circle", style="soft")
+        self.ai_pill = Pill("AI 추정", "sparkle", style="soft")
         pills.addWidget(self.cat_pill)
         pills.addWidget(self.dist_pill)
         pills.addWidget(self.official_pill)
+        pills.addWidget(self.ai_pill)
         pills.addStretch(1)
         b.addLayout(pills)
 
@@ -404,6 +406,10 @@ class DetailView(QWidget):
         self.dist_pill.set_colors(p.text_dim, p.card)
         self.official_pill.setVisible(place.official)
         self.official_pill.set_colors(p.good, p.card)
+        # 공식 지정이 아니라는 점을 상세 화면에서 가장 먼저 보이게 한다
+        self.ai_pill.setVisible(place.ai_guess)
+        self.ai_pill.set_text(f"AI 추정 {place.ai_confidence}% · 공식 쉼터 아님")
+        self.ai_pill.set_colors(p.warn, p.card)
 
         self.title.setText(place.name)
         self.summary.setText(place.summary)

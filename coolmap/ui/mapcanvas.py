@@ -377,12 +377,25 @@ class MapCanvas(QWidget):
     def _accent_for(self, pal: Palette, a: Analysis) -> QColor:
         return QColor(pal.text_mute) if not a.crowd.open_now else QColor(pal.accent)
 
+    @staticmethod
+    def _outline_pen(color: QColor, width: float, guess: bool) -> QPen:
+        """마커 외곽선. AI 추정 쉼터는 점선으로 그려 공식 쉼터와 구분한다."""
+        pen = QPen(color)
+        pen.setWidthF(width)
+        pen.setJoinStyle(Qt.RoundJoin)
+        if guess:
+            pen.setStyle(Qt.CustomDashLine)
+            pen.setDashPattern([4.0, 3.0])
+        return pen
+
     def _draw_highlight_marker(self, p: QPainter, pal: Palette, place: Place,
                                a: Analysis, selected: bool, hovered: bool) -> QPointF:
         """실제 건물 외곽선을 하이라이트 (없으면 원형으로 폴백)."""
         color = self._accent_for(pal, a)
         center = self.to_screen(place.lat, place.lon)
         b = self._building_for(place)
+        # AI 추정 쉼터는 공식 쉼터보다 약하게 — 눈에는 띄되 먼저 읽히지는 않게
+        guess = place.ai_guess
 
         if b is None or self._zoom < 14.5:
             # 건물 데이터가 없거나 줌아웃 상태 → 원형 하이라이트
@@ -392,24 +405,23 @@ class MapCanvas(QWidget):
             p.setBrush(Qt.NoBrush)
             p.drawEllipse(center, r, r)
             for w, alpha in ((13, 26), (8, 38), (4, 58)):
-                pen = QPen(QColor(color.red(), color.green(), color.blue(), alpha))
+                pen = QPen(QColor(color.red(), color.green(), color.blue(),
+                                  int(alpha * (0.55 if guess else 1.0))))
                 pen.setWidthF(w)
                 p.setPen(pen)
                 p.setBrush(Qt.NoBrush)
                 p.drawEllipse(center, r, r)
             fill = QColor(color)
-            fill.setAlpha(66)
+            fill.setAlpha(34 if guess else 66)
             p.setBrush(fill)
-            pen = QPen(color)
-            pen.setWidthF(2.4 if selected else 1.9)
-            p.setPen(pen)
+            p.setPen(self._outline_pen(color, 2.4 if selected else 1.9, guess))
             p.drawEllipse(center, r, r)
             return QPointF(center.x(), center.y() - r)
 
         poly = QPolygonF([self.to_screen(la, lo) for la, lo in b["poly"]])
         rect = poly.boundingRect()
         pulse = (math.sin(self._phase * 1.6) * 0.5 + 0.5) if selected else 0.5
-        strength = 1.0 if (selected or hovered) else 0.72
+        strength = (1.0 if (selected or hovered) else 0.72) * (0.55 if guess else 1.0)
 
         # 지도 위 어디서든 도형이 분리돼 보이도록 어두운 테두리를 먼저 깐다
         shade = QPen(QColor(0, 0, 0, 120))
@@ -429,12 +441,12 @@ class MapCanvas(QWidget):
             p.drawPolygon(poly)
 
         fill = QColor(color)
-        fill.setAlpha(int(74 + 28 * pulse) if selected else 60)
+        if guess:
+            fill.setAlpha(int(40 + 16 * pulse) if selected else 30)
+        else:
+            fill.setAlpha(int(74 + 28 * pulse) if selected else 60)
         p.setBrush(fill)
-        pen = QPen(color)
-        pen.setWidthF(2.6 if selected else 2.0)
-        pen.setJoinStyle(Qt.RoundJoin)
-        p.setPen(pen)
+        p.setPen(self._outline_pen(color, 2.6 if selected else 2.0, guess))
         p.drawPolygon(poly)
 
         if selected and rect.width() > 24:
@@ -496,8 +508,7 @@ class MapCanvas(QWidget):
         p.setPen(glow)
         p.drawPath(path)
 
-        pen = QPen(color)
-        pen.setWidthF(2.4 if selected else 2.0)
+        pen = self._outline_pen(color, 2.4 if selected else 2.0, place.ai_guess)
         pen.setCapStyle(Qt.RoundCap)
         p.setPen(pen)
         p.drawPath(path)
@@ -543,6 +554,9 @@ class MapCanvas(QWidget):
 
         meta = (f"{a.indoor:.0f}°C · 민폐도 {a.nuisance.score}"
                 if a.crowd.open_now else "운영 종료")
+        if place.ai_guess:
+            # 공식 쉼터가 아니라는 사실이 라벨만 보고도 드러나야 한다
+            meta = f"AI 추정 · {meta}"
         w = max(fm.horizontalAdvance(place.name), fm2.horizontalAdvance(meta)) + 44
         h = 40
         rect = QRectF(anchor.x() - w / 2, anchor.y() - h - 14, w, h)
@@ -567,8 +581,8 @@ class MapCanvas(QWidget):
         bg = QColor(pal.panel)
         bg.setAlpha(252)
         p.setBrush(bg)
-        pen = QPen(color if (selected or hovered) else QColor(pal.border))
-        pen.setWidthF(1.8 if selected else 1.3)
+        pen = self._outline_pen(color if (selected or hovered) else QColor(pal.border),
+                                1.8 if selected else 1.3, place.ai_guess)
         p.setPen(pen)
         p.drawRoundedRect(rect, 10, 10)
 
@@ -606,8 +620,14 @@ class MapCanvas(QWidget):
         p.setPen(Qt.NoPen)
         p.setBrush(QColor(0, 0, 0, 120))
         p.drawEllipse(anchor, 7.5, 7.5)
-        p.setPen(QPen(QColor(pal.bg), 2))
-        p.setBrush(self._accent_for(pal, a))
+        accent = self._accent_for(pal, a)
+        if a.place.ai_guess:
+            # 속을 비워 공식 쉼터의 채운 점과 구분한다
+            p.setPen(QPen(accent, 2.0))
+            p.setBrush(QColor(pal.bg))
+        else:
+            p.setPen(QPen(QColor(pal.bg), 2))
+            p.setBrush(accent)
         p.drawEllipse(anchor, 5.5, 5.5)
 
     def _draw_user(self, p: QPainter, pal: Palette) -> None:

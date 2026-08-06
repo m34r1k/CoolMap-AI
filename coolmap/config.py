@@ -36,6 +36,7 @@ DEFAULTS: dict = {
     "map_labels": True,
     "animations": True,
     "only_official": False,
+    "ai_candidates": True,        # 지도의 상호를 AI 로 판단해 추가 하이라이트
     "max_walk": 40,               # 분
     "search_radius": 2500,        # 쉼터 검색 반경 (m)
     "location_mode": "auto",      # auto(윈도우 위치 서비스) | manual

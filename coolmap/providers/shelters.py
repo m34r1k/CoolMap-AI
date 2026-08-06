@@ -177,6 +177,17 @@ _ASSUMED_INDOOR = {
 }
 
 
+def assumed_indoor(category: str, mode: str) -> float:
+    """유형만 아는 시설의 실내 온도 추정치.
+
+    설비 정보가 없는 쉼터와, 지도에서 이름만 얻어온 AI 추정 쉼터가
+    같은 기준을 쓰도록 한 곳에 둔다.
+    """
+    if mode == HEATING:
+        return _ASSUMED_INDOOR_HEAT.get(category, 23.0)
+    return _ASSUMED_INDOOR.get(category, 26.0)
+
+
 def _hhmm_to_hour(v) -> int | None:
     """'0900' / '090000' 둘 다 시(hour)로 바꾼다.
 

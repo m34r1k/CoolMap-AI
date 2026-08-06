@@ -13,23 +13,15 @@ import json
 import math
 import threading
 import time
-import urllib.parse
-import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
 from PySide6.QtCore import QObject, Signal
 
 from ..paths import cache_dir
-
-ENDPOINTS = [
-    "https://overpass-api.de/api/interpreter",
-    "https://overpass.kumi.systems/api/interpreter",
-]
-USER_AGENT = "CoolMapAI/1.0 (desktop shelter map)"
+from . import overpass
 
 CELL = 0.01          # 약 1.1km × 0.9km
 MAX_CELLS = 24       # 한 번에 유지할 셀 수
-MIN_INTERVAL = 1.2   # 요청 간 최소 간격 (초)
 
 Poly = list[tuple[float, float]]      # [(lat, lon), ...]
 
@@ -56,7 +48,6 @@ class BuildingProvider(QObject):
         self._failed: dict[tuple[int, int], float] = {}
         self._pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="overpass")
         self._dir = cache_dir("buildings")
-        self._last_request = 0.0
         self._enabled = True
         self._error = ""
 
@@ -144,12 +135,6 @@ class BuildingProvider(QObject):
 
     def _fetch(self, cell: tuple[int, int]) -> None:
         try:
-            # 공용 인프라 배려 — 요청 간격 유지
-            wait = MIN_INTERVAL - (time.time() - self._last_request)
-            if wait > 0:
-                time.sleep(wait)
-            self._last_request = time.time()
-
             s, w, n, e = _cell_bbox(cell)
             query = (
                 "[out:json][timeout:25];"
@@ -157,27 +142,7 @@ class BuildingProvider(QObject):
                 f" relation['building']({s},{w},{n},{e}););"
                 "out geom;"
             )
-            # Overpass 공개 인스턴스는 504/429 가 흔하다 → 짧은 백오프로 재시도
-            data = None
-            attempts = [(ENDPOINTS[0], 35), (ENDPOINTS[1], 20), (ENDPOINTS[0], 35)]
-            for i, (url, timeout) in enumerate(attempts):
-                try:
-                    req = urllib.request.Request(
-                        url,
-                        data=urllib.parse.urlencode({"data": query}).encode(),
-                        headers={"User-Agent": USER_AGENT},
-                    )
-                    with urllib.request.urlopen(req, timeout=timeout) as r:
-                        data = json.loads(r.read().decode("utf-8", "replace"))
-                    break
-                except Exception as exc:
-                    self._error = f"{type(exc).__name__}: {exc}"
-                    if i < len(attempts) - 1:
-                        time.sleep(1.5 * (i + 1))
-            if data is None:
-                raise RuntimeError(self._error or "overpass unreachable")
-
-            items = _parse(data)
+            items = _parse(overpass.request(query))
             self._path(cell).write_text(json.dumps(items), encoding="utf-8")
             with self._lock:
                 self._cells[cell] = items

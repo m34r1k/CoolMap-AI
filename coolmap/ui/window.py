@@ -230,6 +230,9 @@ class MainWindow(QMainWindow):
         state.originChanged.connect(self._on_origin_changed)
         self.nuisance_ai.scored.connect(self._on_ai_scored)
         self.weather.updated.connect(self._on_weather)
+        # 지도 상호 판단이 끝날 때마다 추정 쉼터가 하나씩 늘어난다
+        self.candidates = providers.candidate_provider()
+        self.candidates.updated.connect(self._on_ai_scored)
         QTimer.singleShot(300, self._warm_providers)
         QTimer.singleShot(600, self.locate_now)
 
@@ -273,7 +276,7 @@ class MainWindow(QMainWindow):
                        radius_m=float(self.state.get("search_radius"))),
             self.state.mode)
 
-    def _on_ai_scored(self, _place_id: str) -> None:
+    def _on_ai_scored(self, _place_id: str = "") -> None:
         if self._ai_refresh.isActive():
             return
         self._ai_refresh.start(400)      # 여러 결과를 모아서 한 번만 갱신

@@ -104,6 +104,17 @@ class SettingsView(QWidget):
         card, body = self._card("추천 필터", "filter")
         self.cb_official = self._check(body, "공식 지정 무더위·한파 쉼터만 보기")
         self.cb_official.toggled.connect(lambda v: self._set("only_official", v))
+        self.cb_ai = self._check(body, "지도에 이름이 있는 곳을 AI로 추가 판단")
+        self.cb_ai.toggled.connect(lambda v: self._set("ai_candidates", v))
+        ainote = QLabel(
+            "하나로마트·도서관처럼 지도에 상호는 떠 있지만 공식 쉼터로 등록되지 않은 "
+            "곳을 Gemini가 판단해 점선으로 함께 표시합니다. 추정이므로 운영시간과 "
+            "이용 가능 여부는 현장에서 확인하세요. (Gemini 키 필요)"
+        )
+        ainote.setObjectName("mute")
+        ainote.setFont(mono(9, QFont.Normal, 0.5))
+        ainote.setWordWrap(True)
+        body.addWidget(ainote)
         self.walk_slider, walk_row = self._slider("최대 도보 시간", 5, 60, unit="분")
         self.walk_slider.valueChanged.connect(lambda v: self._set("max_walk", int(v)))
         body.addLayout(walk_row)
@@ -240,7 +251,7 @@ class SettingsView(QWidget):
         clear_tiles = QPushButton("지도 캐시 비우기")
         clear_tiles.setCursor(Qt.PointingHandCursor)
         clear_tiles.clicked.connect(self._clear_tiles)
-        clear_ai = QPushButton("민폐도 캐시 비우기")
+        clear_ai = QPushButton("AI 판단 캐시 비우기")
         clear_ai.setCursor(Qt.PointingHandCursor)
         clear_ai.clicked.connect(self._clear_ai)
         self.sync_btn = QPushButton("쉼터 데이터 새로 받기")
@@ -262,9 +273,11 @@ class SettingsView(QWidget):
             "· 민폐도: Gemini가 시설 성격·구매 필요 여부·좌석·공식 쉼터 지정 여부를 근거로 "
             "0~100으로 추정합니다. 측정값이 아닌 추정치이며, 키가 없으면 규칙 기반으로 계산합니다.\n"
             "· 혼잡도: 실시간 인구 데이터 연동 전이라 비활성 상태입니다.\n"
-            "· 쉼터: 행정안전부 재난안전데이터공유플랫폼의 전국 무더위쉼터(약 6만 곳)입니다.\n"
-            "· 난방 모드는 한파쉼터 데이터가 별도라, 무더위쉼터로 지정된 "
-            "실내시설을 참고용으로 보여줍니다."
+            "· 쉼터: 행정안전부 재난안전데이터공유플랫폼을 사용합니다. "
+            "냉방 모드는 무더위쉼터, 난방 모드는 한파쉼터입니다.\n"
+            "· AI 추정 쉼터: 지도에 상호는 있으나 공식 목록에 없는 곳을 Gemini가 "
+            "판단해 점선으로 덧붙입니다. 공식 지정 쉼터가 아니므로 이용 가능 여부는 "
+            "현장에서 확인해야 합니다."
         )
         info.setObjectName("dim")
         info.setWordWrap(True)
@@ -448,6 +461,7 @@ class SettingsView(QWidget):
 
     def _clear_ai(self) -> None:
         providers.nuisance_ai().clear_cache()
+        providers.candidate_provider().clear_cache()
         self.changed.emit()
         self.refresh()
 
@@ -458,7 +472,19 @@ class SettingsView(QWidget):
         weather = providers.weather_provider()
         ai = providers.nuisance_ai()
         buildings = providers.building_provider()
+        cand = providers.candidate_provider()
         p = self.state.palette
+
+        cand_on = bool(self.state.get("ai_candidates")) and cand.enabled
+        if not self.state.get("ai_candidates"):
+            cand_txt = "꺼짐 (추천 필터에서 켤 수 있습니다)"
+        elif not cand.has_key:
+            cand_txt = "Gemini 키 없음"
+        else:
+            judged, usable = cand.stats()
+            cand_txt = (f"상호 {judged:,}곳 판단 · {usable:,}곳 인정"
+                        f" (구역 {cand.cache_count()})"
+                        + (" · 판단 중…" if cand.busy() else ""))
 
         def dot(ok: bool, label: str) -> str:
             color = p.good if ok else p.text_mute
@@ -490,6 +516,7 @@ class SettingsView(QWidget):
                               + ("" if weather.live else " (키 없음 · 모의 데이터 사용)")),
             dot(ai.enabled, f"민폐도 — Gemini {ai.model}"
                             + ("" if ai.enabled else " (키 없음 · 규칙 기반 사용)")),
+            dot(cand_on, "AI 추정 쉼터 — " + cand_txt),
             dot(CROWD_ENABLED, "혼잡도 — 실시간 인구 데이터 "
                                + ("연동됨" if CROWD_ENABLED else "연동 예정 (Coming Soon)")),
         ]
@@ -535,6 +562,7 @@ class SettingsView(QWidget):
         self.heat_slider.setValue(int(s.get("target_heat")))
         self.heat_slider.value_label.setText(f"{int(s.get('target_heat'))}°C")
         self.cb_official.setChecked(bool(s.get("only_official")))
+        self.cb_ai.setChecked(bool(s.get("ai_candidates")))
         self.walk_slider.setValue(int(s.get("max_walk")))
         self.walk_slider.value_label.setText(f"{int(s.get('max_walk'))}분")
         lidx = self.loc_combo.findData(s.get("location_mode"))

@@ -53,6 +53,9 @@ class Place:
     open_to: int = 21               # 24 이상이면 익일까지
     official: bool = False          # 공식 지정 무더위/한파 쉼터
     always_open: bool = False
+    # 공식 목록에는 없지만 지도의 상호를 보고 AI 가 추정한 쉼터
+    ai_guess: bool = False
+    ai_confidence: int = 0          # 0..100
     weekend_closed: bool = False    # 주말 휴관 (관공서·은행 등)
 
     # 규모 / 환경

@@ -9,6 +9,7 @@ _tiles = None
 _weather = None
 _buildings = None
 _nuisance = None
+_candidates = None
 _shelters: dict = {}
 _location = None
 
@@ -45,6 +46,15 @@ def nuisance_ai():
     return _nuisance
 
 
+def candidate_provider():
+    """지도 상호를 AI 로 판단하는 추정 쉼터 제공자."""
+    global _candidates
+    if _candidates is None:
+        from .candidates import CandidateProvider
+        _candidates = CandidateProvider()
+    return _candidates
+
+
 def shelter_provider(mode: str = "cooling"):
     """모드별 쉼터 제공자 (냉방=무더위쉼터 / 난방=한파쉼터)."""
     from .shelters import DATASETS, ShelterProvider
@@ -70,7 +80,7 @@ def location_provider():
 
 
 def shutdown_all() -> None:
-    for p in (_tiles, _weather, _buildings, _nuisance, _location,
+    for p in (_tiles, _weather, _buildings, _nuisance, _candidates, _location,
               *_shelters.values()):
         if p is not None:
             try:
