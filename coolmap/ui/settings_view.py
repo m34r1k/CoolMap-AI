@@ -208,7 +208,8 @@ class SettingsView(QWidget):
         # 4.5 API 키 -----------------------------------------------------------
         card, body = self._card("API 키", "gear")
         kdesc = QLabel(
-            "키를 넣으면 실데이터로 동작합니다. 없어도 앱은 폴백 모드로 실행됩니다.\n"
+            "키가 없어도 CoolMap 서버를 거쳐 실데이터로 동작합니다. "
+            "본인 키를 넣으면 서버 대신 그 키로 직접 받습니다.\n"
             "입력한 키는 이 PC의 %APPDATA%\\CoolMap\\secrets.json 에만 저장되며, "
             "실행 파일이나 저장소에는 포함되지 않습니다."
         )
@@ -514,9 +515,9 @@ class SettingsView(QWidget):
                                    f"(캐시 {tiles.cache_size_mb():.1f}MB)"),
             dot(True, f"건물 외곽선 — OSM Overpass (캐시 {buildings.cache_count()}구역)"),
             dot(weather.live, "날씨 — 기상청 단기예보"
-                              + ("" if weather.live else " (키 없음 · 모의 데이터 사용)")),
+                              + ("" if weather.live else " (받지 못함 · 모의 데이터 사용)")),
             dot(ai.enabled, f"민폐도 — Gemini {ai.model}"
-                            + ("" if ai.enabled else " (키 없음 · 규칙 기반 사용)")),
+                            + ("" if ai.enabled else " (사용 불가 · 규칙 기반 사용)")),
             dot(cand_on, "AI 추정 쉼터 — " + cand_txt),
             dot(CROWD_ENABLED, "혼잡도 — 실시간 인구 데이터 "
                                + ("연동됨" if CROWD_ENABLED else "연동 예정 (Coming Soon)")),

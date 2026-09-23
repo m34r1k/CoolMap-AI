@@ -1,15 +1,14 @@
 """API 키 로딩.
 
-키는 **공개 저장소에 올라가는 소스에 넣지 않는다.** 아래 순서로 찾는다.
+키는 **소스에도, 실행 파일에도 넣지 않는다.** 아래 순서로 찾는다.
 
 1. 환경변수  COOLMAP_GEMINI_KEY / COOLMAP_KMA_KEY / COOLMAP_SHELTER_KEY
 2. %APPDATA%\\CoolMap\\secrets.json
 3. 프로젝트 루트의 secrets.json (개발용, .gitignore 대상)
-4. coolmap/local_keys.py 의 KEYS — 앱에 내장하는 기본값 (.gitignore 대상)
 
-4번은 빌드에 함께 들어가므로 키를 따로 설정하지 않은 사용자도 바로 쓸 수 있다.
-저장소를 clone 한 사본에는 이 파일이 없고, 그때는 1~3번만 쓰인다.
-1~3번이 우선이므로 사용자가 설정 화면에 자기 키를 넣으면 그 키가 쓰인다.
+키가 하나도 없어도 앱은 실데이터로 동작한다 — 공공 API·Gemini 는 CoolMap 서버
+(providers/backend.py, supabase/)가 대신 호출한다. 여기 키가 있으면 서버 대신
+그 키로 직접 부른다.
 
 secrets.json 형식:
 {
@@ -45,28 +44,16 @@ def secrets_path() -> Path:
     return secrets_file()
 
 
-def _builtin() -> dict:
-    """앱에 내장된 기본 키. 파일이 없으면(공개 저장소에서 받은 사본) 빈 값."""
-    try:
-        from .local_keys import KEYS
-    except ImportError:
-        return {}
-    return dict(KEYS) if isinstance(KEYS, dict) else {}
-
-
 @lru_cache(maxsize=1)
 def _load() -> dict:
-    data: dict = _builtin()
+    data: dict = {}
     for path in (secrets_path(), Path(__file__).resolve().parent.parent / "secrets.json"):
         try:
-            found = json.loads(path.read_text(encoding="utf-8"))
+            data = json.loads(path.read_text(encoding="utf-8"))
+            break
         except (OSError, ValueError):
             continue
-        if isinstance(found, dict):
-            # 빈 값은 덮어쓰지 않는다 — 설정 화면에서 지운 칸이 내장 키를 지우면 안 된다
-            data.update({k: v for k, v in found.items() if str(v).strip()})
-        break
-    return data
+    return data if isinstance(data, dict) else {}
 
 
 def get(name: str, default: str = "") -> str:
