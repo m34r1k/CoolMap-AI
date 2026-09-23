@@ -40,8 +40,19 @@ def rest(table: str, params: dict, headers: dict | None = None,
          timeout: float = 30) -> tuple[list | dict, dict]:
     """PostgREST 조회. (본문, 응답 헤더) 를 돌려준다."""
     q = urllib.parse.urlencode(params, safe=",.()")
+    return _get(f"{url()}/rest/v1/{table}?{q}", headers, timeout)
+
+
+def function(name: str, params: dict, timeout: float = 20) -> dict:
+    """Edge Function GET 호출."""
+    q = urllib.parse.urlencode(params)
+    body, _ = _get(f"{url()}/functions/v1/{name}?{q}", None, timeout)
+    return body if isinstance(body, dict) else {}
+
+
+def _get(full_url: str, headers: dict | None, timeout: float) -> tuple[list | dict, dict]:
     req = urllib.request.Request(
-        f"{url()}/rest/v1/{table}?{q}",
+        full_url,
         headers={
             # apikey 하나만으로 anon 권한이 된다 (구형 anon JWT · 신형 publishable 둘 다)
             "apikey": key(),
