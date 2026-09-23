@@ -27,6 +27,7 @@ from concurrent.futures import ThreadPoolExecutor
 from PySide6.QtCore import QObject, Signal
 
 from .. import secrets
+from . import backend
 from ..geo import haversine
 from ..models import CATEGORIES, COOLING, HEATING, Place
 from ..paths import cache_dir
@@ -376,8 +377,20 @@ class CandidateProvider(QObject):
 
     # -- 상태 --------------------------------------------------------------
     @property
-    def has_key(self) -> bool:
+    def own_key(self) -> bool:
         return bool(secrets.gemini_key())
+
+    @property
+    def use_backend(self) -> bool:
+        """사용자 키가 없으면 CoolMap 서버(supabase/functions/ai)를 거친다.
+
+        서버에도 같은 RUBRIC·SCHEMA·_ALLOW 가 있으므로 여기를 고치면 그쪽도 고친다.
+        """
+        return not self.own_key and backend.enabled()
+
+    @property
+    def has_key(self) -> bool:
+        return self.own_key or backend.enabled()
 
     @property
     def enabled(self) -> bool:
@@ -577,6 +590,25 @@ class CandidateProvider(QObject):
         self._ai_pool.submit(self._judge, batch)
 
     def _judge(self, batch: list[tuple[str, dict]]) -> None:
+        if self.use_backend:
+            results = self._ask_backend(batch)
+        else:
+            results = self._ask_gemini(batch)
+        self._apply(batch, results)
+
+    def _ask_backend(self, batch: list[tuple[str, dict]]) -> list[dict] | None:
+        try:
+            d = backend.call("ai", {"task": "judge", "items": [
+                {"name": poi["name"], "kind": poi["kind"]} for _k, poi in batch]})
+            self._calls += 1
+            self._error = ""
+            # 서버는 입력 순서대로 돌려준다. 판단하지 못한 항목은 null
+            return [r for r in (d.get("results") or []) if isinstance(r, dict)]
+        except Exception as exc:
+            self._error = f"{type(exc).__name__}: {exc}"
+            return None
+
+    def _ask_gemini(self, batch: list[tuple[str, dict]]) -> list[dict] | None:
         listing = "\n".join(
             f"{i}. 상호: {poi['name']} / 지도 분류: {poi['kind']}"
             for i, (_k, poi) in enumerate(batch)
@@ -612,7 +644,9 @@ class CandidateProvider(QObject):
                 break
             except Exception as exc:
                 self._error = f"{type(exc).__name__}: {exc}"
+        return results
 
+    def _apply(self, batch: list[tuple[str, dict]], results: list[dict] | None) -> None:
         if results is None:
             self._fail_until = time.time() + ASK_COOLDOWN
         else:

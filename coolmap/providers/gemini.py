@@ -4,6 +4,8 @@
 - 결정론에 가깝게: temperature 0 + 고정 루브릭 + responseSchema
 - 장소별 디스크 캐시 (정적 속성만 쓰므로 재호출이 거의 없다)
 - 백그라운드 스레드, 실패 시 규칙 기반(ai.score_nuisance) 으로 폴백
+- 사용자 키가 없으면 CoolMap 서버(supabase/functions/ai)를 거친다.
+  서버에도 같은 루브릭이 있으므로 RUBRIC·SCHEMA·_describe 를 고치면 그쪽도 고친다.
 """
 
 from __future__ import annotations
@@ -17,6 +19,7 @@ from concurrent.futures import ThreadPoolExecutor
 from PySide6.QtCore import QObject, Signal
 
 from .. import secrets
+from . import backend
 from ..paths import cache_dir
 
 API = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
@@ -142,8 +145,17 @@ class NuisanceAI(QObject):
 
     # -- 상태 --------------------------------------------------------------
     @property
-    def has_key(self) -> bool:
+    def own_key(self) -> bool:
         return bool(secrets.gemini_key())
+
+    @property
+    def use_backend(self) -> bool:
+        """사용자 키가 없으면 CoolMap 서버를 거친다."""
+        return not self.own_key and backend.enabled()
+
+    @property
+    def has_key(self) -> bool:
+        return self.own_key or backend.enabled()
 
     @property
     def enabled(self) -> bool:
@@ -196,6 +208,37 @@ class NuisanceAI(QObject):
         return None
 
     def _fetch(self, key: str, place, mode: str) -> None:
+        if self.use_backend:
+            result = self._ask_backend(place, mode)
+        else:
+            result = self._ask_gemini(place, mode)
+
+        if result is not None:
+            result = _sanitize(result)
+            try:
+                (self._dir / f"{key}.json").write_text(
+                    json.dumps(result, ensure_ascii=False), encoding="utf-8")
+            except OSError:
+                pass
+            with self._lock:
+                self._mem[key] = result
+
+        with self._lock:
+            self._pending.discard(key)
+        self.scored.emit(place.id)
+
+    def _ask_backend(self, place, mode: str) -> dict | None:
+        try:
+            d = backend.call("ai", {"task": "nuisance", "profile": _profile(place, mode)})
+            self._model = d.get("model") or self._model
+            self._calls += 1
+            self._error = ""
+            return d.get("result")
+        except Exception as exc:
+            self._error = f"{type(exc).__name__}: {exc}"
+            return None
+
+    def _ask_gemini(self, place, mode: str) -> dict | None:
         payload = {
             "systemInstruction": {"parts": [{"text": RUBRIC}]},
             "contents": [{"parts": [{"text": _describe(place, mode)}]}],
@@ -227,20 +270,7 @@ class NuisanceAI(QObject):
                 break
             except Exception as exc:
                 self._error = f"{type(exc).__name__}: {exc}"
-
-        if result is not None:
-            result = _sanitize(result)
-            try:
-                (self._dir / f"{key}.json").write_text(
-                    json.dumps(result, ensure_ascii=False), encoding="utf-8")
-            except OSError:
-                pass
-            with self._lock:
-                self._mem[key] = result
-
-        with self._lock:
-            self._pending.discard(key)
-        self.scored.emit(place.id)
+        return result
 
     def warm(self, places, mode: str) -> None:
         """미리 채워두기 (앱 시작 시 호출)."""

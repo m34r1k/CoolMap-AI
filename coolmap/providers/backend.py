@@ -50,9 +50,19 @@ def function(name: str, params: dict, timeout: float = 20) -> dict:
     return body if isinstance(body, dict) else {}
 
 
-def _get(full_url: str, headers: dict | None, timeout: float) -> tuple[list | dict, dict]:
+def call(name: str, payload: dict, timeout: float = 90) -> dict:
+    """Edge Function POST 호출."""
+    body, _ = _get(f"{url()}/functions/v1/{name}",
+                   {"Content-Type": "application/json"}, timeout,
+                   data=json.dumps(payload, ensure_ascii=False).encode("utf-8"))
+    return body if isinstance(body, dict) else {}
+
+
+def _get(full_url: str, headers: dict | None, timeout: float,
+         data: bytes | None = None) -> tuple[list | dict, dict]:
     req = urllib.request.Request(
         full_url,
+        data=data,
         headers={
             # apikey 하나만으로 anon 권한이 된다 (구형 anon JWT · 신형 publishable 둘 다)
             "apikey": key(),
