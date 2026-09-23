@@ -499,8 +499,9 @@ class SettingsView(QWidget):
             shelter_txt = (f"쉼터 목록 — 부분 수신 {sp.count:,}/{sp.total_expected:,}건"
                            " (다시 받으면 이어받습니다)")
         elif sp.loaded:
-            shelter_txt = (f"쉼터 목록 — 행안부 무더위쉼터 {sp.count:,}건"
-                           f" (내려받은 지 {sp.age_days:.1f}일)")
+            via = "CoolMap 서버" if sp.use_backend else "내 키"
+            shelter_txt = (f"쉼터 목록 — {sp.label} {sp.count:,}건"
+                           f" ({via} · 내려받은 지 {sp.age_days:.1f}일)")
         elif not sp.has_key:
             shelter_txt = "쉼터 목록 — 데모 데이터 (키 미입력)"
         else:

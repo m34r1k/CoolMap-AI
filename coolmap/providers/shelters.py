@@ -4,7 +4,9 @@ safetydata.go.kr  /V2/api/DSSP-IF-10942  (전국 약 6만 건, 위경도 포함)
 
 - 서버 측 필터가 없어서 전량(1000건 × 61페이지)을 1회 동기화한 뒤 디스크에 캐시한다.
 - 이후 실행부터는 캐시에서 즉시 로드하고, 사용자 위치 반경으로만 걸러 쓴다.
-- 실패하거나 키가 없으면 데모 데이터로 폴백한다.
+- 사용자가 키를 넣지 않았으면 CoolMap 서버(Supabase)가 미리 받아 둔 사본을 받는다
+  (supabase/functions/sync-shelters). 키를 넣었으면 그 키로 직접 받는다.
+- 둘 다 실패하면 데모 데이터로 폴백한다.
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ from dataclasses import dataclass
 from PySide6.QtCore import QObject, Signal
 
 from .. import secrets
+from . import backend
 from ..geo import haversine
 from ..models import COOLING, HEATING, Place
 from ..paths import cache_dir
@@ -27,6 +30,8 @@ from ..paths import cache_dir
 BASE = "https://www.safetydata.go.kr/V2/api"
 PAGE_SIZE = 1000
 CACHE_TTL = 14 * 24 * 3600      # 2주
+BACKEND_TTL = 3 * 24 * 3600     # 서버 사본은 한도가 없으니 더 자주 갱신한다
+BACKEND_WORKERS = 4
 
 
 @dataclass(frozen=True)
@@ -367,8 +372,18 @@ class ShelterProvider(QObject):
 
     # -- 상태 -------------------------------------------------------------
     @property
-    def has_key(self) -> bool:
+    def own_key(self) -> bool:
         return bool(secrets.get(self.dataset.secret_key))
+
+    @property
+    def use_backend(self) -> bool:
+        """사용자 키가 없으면 CoolMap 서버 사본을 쓴다."""
+        return not self.own_key and backend.enabled()
+
+    @property
+    def has_key(self) -> bool:
+        """받아 올 경로가 있는지 (사용자 키 또는 서버)."""
+        return self.own_key or backend.enabled()
 
     @property
     def label(self) -> str:
@@ -434,7 +449,8 @@ class ShelterProvider(QObject):
     def stale(self) -> bool:
         if not self.loaded or self._missing_pages:
             return True
-        return (time.time() - self._fetched_at) > CACHE_TTL
+        ttl = BACKEND_TTL if self.use_backend else CACHE_TTL
+        return (time.time() - self._fetched_at) > ttl
 
     # -- 동기화 -----------------------------------------------------------
     def sync(self, force: bool = False) -> None:
@@ -443,7 +459,58 @@ class ShelterProvider(QObject):
         if not force and not self.stale():
             return
         self._syncing = True
-        self._pool.submit(self._do_sync)
+        self._pool.submit(self._do_sync_backend if self.use_backend else self._do_sync)
+
+    # -- 서버 사본 ---------------------------------------------------------
+    def _fetch_backend(self, offset: int, limit: int = PAGE_SIZE,
+                       count: bool = False) -> tuple[list[dict], int]:
+        """서버 테이블 한 구간. 레코드는 이미 공통 필드명으로 정규화돼 있다."""
+        body, headers = backend.rest("shelters", {
+            "select": "rec",
+            "mode": f"eq.{self.dataset.mode}",
+            "order": "no",
+            "offset": offset,
+            "limit": limit,
+        }, headers={"Prefer": "count=exact"} if count else None)
+        total = 0
+        if count:
+            # Content-Range: 0-999/60879
+            rng = headers.get("Content-Range") or headers.get("content-range") or ""
+            try:
+                total = int(rng.rsplit("/", 1)[1])
+            except (IndexError, ValueError):
+                pass
+        return [row["rec"] for row in body if isinstance(row.get("rec"), dict)], total
+
+    def _do_sync_backend(self) -> None:
+        """서버 사본 전량 수신.
+
+        공공 API 가 아니라 한도 걱정이 없으므로 이어받기 없이 통째로 다시 받는다.
+        실패하면 기존 캐시는 그대로 둔다.
+        """
+        try:
+            rows, total = self._fetch_backend(0, count=True)
+            if not rows:
+                raise RuntimeError("서버에 쉼터 데이터가 아직 없습니다")
+            # 서버의 한 번 응답 상한이 PAGE_SIZE 보다 작을 수 있으니 실제로 받은 수로 나눈다
+            step = len(rows)
+            self.progress.emit(len(rows), total)
+            with ThreadPoolExecutor(max_workers=BACKEND_WORKERS) as pool:
+                for body, _ in pool.map(lambda o: self._fetch_backend(o, step),
+                                        range(step, total, step)):
+                    rows.extend(body)
+                    self.progress.emit(len(rows), total)
+            with self._lock:
+                self._records = rows
+            self._missing_pages = []
+            self._total_expected = total
+            self._save_cache()
+            self._error = ""
+        except Exception as exc:
+            self._error = f"CoolMap 서버에서 쉼터를 받지 못했습니다 ({type(exc).__name__}: {exc})"
+        finally:
+            self._syncing = False
+        self.ready.emit()
 
     def _fetch_page(self, page: int) -> tuple[list[dict], int]:
         q = urllib.parse.urlencode({

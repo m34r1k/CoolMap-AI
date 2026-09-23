@@ -1,6 +1,7 @@
 # API 키 — 절대 커밋 금지 (실제 키는 %APPDATA%\CoolMap\secrets.json 에 보관)
 secrets.json
 .env
+coolmap/local_keys.py
 
 # 디자인 시안 (용량이 커서 저장소에서 제외)
 designs/
@@ -28,3 +29,7 @@ _test_settings.json
 # OS
 Thumbs.db
 .DS_Store
+
+# 터미널 실습용 폴더 - 저장소에 올리지 않음 (main.py 에 API 키가 들어갈 수 있음)
+냉난방지도_terminal/
+냉난방지도_terminal_simplified/
