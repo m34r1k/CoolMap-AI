@@ -115,8 +115,8 @@ def places_for(mode: str, origin: tuple[float, float] | None = None,
             # 야외 쉼터는 난방 모드에서 의미가 없다
             found = [p for p in found if p.category != "park"]
 
-    if not found:
-        # 폴백 — 데모 데이터
+    if not sp.loaded:
+        # 데이터가 아예 없을때만 데모 데이터를 쓴다.
         found = [p for p in PLACES if p.supports(mode)]
 
     if include_ai:
