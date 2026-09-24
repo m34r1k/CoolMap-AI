@@ -38,8 +38,16 @@ MapLibre 는 네이티브 모듈이라 Expo Go 로는 열리지 않습니다. �
 ## APK 만들기 (지인 배포용)
 
 ```bash
-npx expo run:android --variant release
+npx expo prebuild --platform android      # android/ 가 없을 때만
+cd android
+./gradlew app:assembleRelease -PreactNativeArchitectures=armeabi-v7a,arm64-v8a,x86_64
 # → android/app/build/outputs/apk/release/app-release.apk
 ```
 
+`npx expo run:android --variant release` 는 **연결된 기기의 CPU 용으로만** 빌드하므로
+(에뮬레이터면 x86_64 전용) 배포용으로 쓰지 않습니다.
+
 받은 사람은 휴대폰에서 '출처를 알 수 없는 앱 설치'를 허용해야 설치됩니다.
+
+지금은 Expo 템플릿의 테스트용 키(`debug.keystore`)로 서명합니다. 지인 배포에는 충분하지만
+Play 스토어에 올리려면 전용 서명 키를 만들어야 합니다.
