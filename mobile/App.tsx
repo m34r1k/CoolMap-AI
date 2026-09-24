@@ -73,16 +73,32 @@ function Main() {
       setNotice("위치 권한이 없어 서울시청 주변을 보여줍니다");
       return;
     }
-    try {
-      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      const here: LngLat = [pos.coords.longitude, pos.coords.latitude];
+    const apply = (pos: Location.LocationObject) => {
+      const { latitude, longitude } = pos.coords;
+      // 쉼터 데이터는 국내뿐이다
+      if (!(latitude >= 33 && latitude <= 39.5 && longitude >= 124 && longitude <= 132)) {
+        setNotice("현재 위치가 국내가 아니라 서울시청 주변을 보여줍니다");
+        return;
+      }
+      const here: LngLat = [longitude, latitude];
       setLocated(true);
       setNotice("");
       setOrigin(here);
       setSearchCenter(here);
       camera.current?.flyTo({ center: here, zoom: 14, duration: 800 });
+    };
+
+    // 새 GPS 값은 늦게 오거나 안 올 수 있으므로, 최근에 알려진 위치로 먼저 보여 준다
+    const last = await Location.getLastKnownPositionAsync({ maxAge: 10 * 60_000 }).catch(() => null);
+    if (last) apply(last);
+    try {
+      const pos = await Promise.race([
+        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 15_000)),
+      ]);
+      apply(pos);
     } catch {
-      setNotice("현재 위치를 찾지 못했습니다. 위치 서비스가 켜져 있는지 확인해 주세요");
+      if (!last) setNotice("현재 위치를 찾지 못했습니다. 위치 서비스가 켜져 있는지 확인해 주세요");
     }
   }, []);
 
@@ -175,6 +191,8 @@ function Main() {
         logo={false}
         compass={false}
         attributionPosition={{ bottom: 8, right: 8 }}
+        // 상단 바와 하단 패널에 가리지 않는 영역을 지도의 중심으로 삼는다
+        contentInset={{ top: insets.top + 56, bottom: sheetHeight }}
         onPress={() => setSelectedId(null)}
         onRegionDidChange={(e) => setMapCenter(e.nativeEvent.center)}
       >

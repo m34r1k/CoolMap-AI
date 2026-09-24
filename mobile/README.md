@@ -15,7 +15,9 @@
    Supabase 대시보드 SQL Editor 에서 실행합니다.
 2. **Android Studio 설치** — 설치 마법사에서 Android SDK 와 에뮬레이터를 함께 설치합니다.
 3. **환경변수** (Windows 설정 → 시스템 환경 변수)
-   - `JAVA_HOME` = `C:\Program Files\Android\Android Studio\jbr`
+   - `JAVA_HOME` = **JDK 17** 경로 (예: `C:\dev\jdk17`, [Temurin 17](https://adoptium.net/) zip 을 풀어 둔 곳)
+     — Android Studio 에 들어 있는 JDK(`jbr`, 24 이상)는 쓰지 않습니다. prefab 이 출력하는
+     'restricted method' 경고 때문에 `configureCMakeDebug` 단계에서 빌드가 실패합니다.
    - `ANDROID_HOME` = `%LOCALAPPDATA%\Android\Sdk`
    - `Path` 에 `%ANDROID_HOME%\platform-tools` 추가
 4. **경로에 한글·공백이 없는 곳에서 빌드** — Android 네이티브 빌드(CMake)는 경로에 한글이나
