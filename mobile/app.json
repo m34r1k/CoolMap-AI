@@ -7,7 +7,16 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": false,
+      "bundleIdentifier": "com.m34r1k.coolmap",
+      "buildNumber": "1",
+      "infoPlist": {
+        "LSApplicationQueriesSchemes": [
+          "kakaomap",
+          "nmap"
+        ],
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.m34r1k.coolmap",

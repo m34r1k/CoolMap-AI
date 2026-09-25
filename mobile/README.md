@@ -1,6 +1,6 @@
-# CoolMap 모바일 (Android)
+# CoolMap 모바일 (Android · iOS)
 
-데스크톱 앱과 같은 CoolMap 서버(Supabase)를 쓰는 Android 앱입니다. Expo(React Native) + Expo Router + MapLibre.
+데스크톱 앱과 같은 CoolMap 서버(Supabase)를 쓰는 Android·iOS 앱입니다. Expo(React Native) + Expo Router + MapLibre.
 화면 구성과 계산은 데스크톱 앱(`../coolmap`)을 그대로 옮겼습니다.
 
 | 화면 | 데스크톱 원본 |
@@ -65,3 +65,42 @@ cd android
 
 지금은 Expo 템플릿의 테스트용 키(`debug.keystore`)로 서명합니다. 지인 배포에는 충분하지만
 Play 스토어에 올리려면 전용 서명 키를 만들어야 합니다.
+
+## iOS (Mac 에서)
+
+iOS 빌드는 Mac + Xcode 에서만 됩니다. Supabase 주소·키는 코드에 들어 있어 따로 설정할 것은 없습니다.
+
+1. **App Store 에서 Xcode 설치** → 한 번 실행해 추가 구성요소 설치를 끝냅니다.
+   Xcode → Settings → Components 에서 iOS 시뮬레이터도 받습니다.
+2. **도구 설치** (터미널)
+   ```bash
+   xcode-select --install          # 명령줄 도구 (이미 있으면 건너뜀)
+   brew install node cocoapods     # Homebrew 가 없으면 https://brew.sh 먼저
+   ```
+3. **코드 받기**
+   ```bash
+   git clone https://github.com/m34r1k/CoolMap-AI.git ~/dev/coolmap
+   cd ~/dev/coolmap/mobile
+   npm install
+   ```
+4. **시뮬레이터에서 실행** — `npx expo run:ios`
+   (시뮬레이터 위치는 Features → Location → Custom Location 에서 바꿉니다)
+5. **내 아이폰에서 실행** — 아이폰을 USB 로 연결하고 `npx expo run:ios --device`
+   - 처음에는 `open ios/CoolMap.xcworkspace` → CoolMap 타깃 → Signing & Capabilities 에서
+     Team 에 내 Apple ID 를 넣습니다.
+   - 아이폰: 설정 → 개인정보 보호 및 보안 → 개발자 모드 켜기,
+     설정 → 일반 → VPN 및 기기 관리 에서 내 Apple ID 를 신뢰.
+   - 무료 Apple ID 로 설치한 앱은 7일 뒤 열리지 않습니다. 다시 설치하면 됩니다.
+
+`ios/` 폴더도 `android/` 처럼 자동으로 만들어지며 저장소에 올리지 않습니다.
+
+### 다른 사람 아이폰에 나눠 주기
+
+Apple Developer Program(연 $99)이 필요합니다. 가입 후 TestFlight 로 초대하는 것이 가장 간단합니다.
+
+```bash
+npm install -g eas-cli
+eas login
+eas build -p ios --profile production   # 인증서·프로비저닝은 EAS 가 물어보며 만들어 줌
+eas submit -p ios                       # App Store Connect 로 업로드 → TestFlight 에서 초대
+```
