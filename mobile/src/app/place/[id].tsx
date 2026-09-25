@@ -180,7 +180,7 @@ export default function Detail() {
 
       {/* 하단 액션 바 */}
       <View style={[styles.bar, { paddingBottom: insets.bottom + 12, backgroundColor: p.panel, borderColor: p.border }]}>
-        <Pressable onPress={() => openDirections(place)} style={[styles.primary, { backgroundColor: p.accent }]}>
+        <Pressable onPress={() => openDirections(place, s.here)} style={[styles.primary, { backgroundColor: p.accent }]}>
           <Icon name="walk" size={20} color={p.accentInk} />
           <Text style={[styles.primaryText, { color: p.accentInk }]}>길찾기</Text>
         </Pressable>

@@ -426,7 +426,7 @@ function NearbyList({
 
 /** 지도에서 선택한 장소의 요약 패널 (mapview.py 선택 패널) */
 function Summary({ a, onClose }: { a: Analysis; onClose: () => void }) {
-  const { p } = useStore();
+  const { p, here } = useStore();
   const where = categoryLabel(a.place);
   const nc = nuisanceColor(p, a.nuisance.key);
   return (
@@ -465,7 +465,7 @@ function Summary({ a, onClose }: { a: Analysis; onClose: () => void }) {
         >
           <Text style={[styles.pillText, { color: p.accentInk }]}>상세 보기</Text>
         </Pressable>
-        <Pressable onPress={() => openDirections(a.place)} style={[styles.secondary, { borderColor: p.border }]}>
+        <Pressable onPress={() => openDirections(a.place, here)} style={[styles.secondary, { borderColor: p.border }]}>
           <Icon name="walk" size={18} color={p.text} />
           <Text style={[styles.pillText, { color: p.text }]}>길찾기</Text>
         </Pressable>

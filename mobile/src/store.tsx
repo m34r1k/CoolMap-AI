@@ -73,6 +73,7 @@ type Store = {
 
   me: Fix | null;
   origin: LngLat; // 거리 계산 기준 (내 위치, 없으면 서울시청)
+  here: LngLat | null; // 실제로 확인된 내 위치 (길찾기 출발지). 못 찾았으면 null
   located: boolean;
   locationNotice: string;
   locate: () => Promise<LngLat | null>;
@@ -348,6 +349,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     now,
     me,
     origin,
+    here: me?.coord ?? (located ? origin : null),
     located,
     locationNotice,
     locate,
