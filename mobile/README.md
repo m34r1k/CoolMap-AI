@@ -1,13 +1,27 @@
 # CoolMap 모바일 (Android)
 
-데스크톱 앱과 같은 CoolMap 서버(Supabase)를 쓰는 Android 앱입니다. Expo(React Native) + MapLibre.
+데스크톱 앱과 같은 CoolMap 서버(Supabase)를 쓰는 Android 앱입니다. Expo(React Native) + Expo Router + MapLibre.
+화면 구성과 계산은 데스크톱 앱(`../coolmap`)을 그대로 옮겼습니다.
 
-| 항목 | 출처 |
+| 화면 | 데스크톱 원본 |
 |---|---|
-| 지도 | OpenFreeMap (키 불필요) |
-| 쉼터 | `shelters_near` RPC — 현재 위치 반경 3km |
-| 기온 | `weather` Edge Function |
-| 현재 위치 | `expo-location` |
+| 홈 (모드 전환 · 목표 온도 · 지도 미리보기 · AI 추천) | `ui/home.py` |
+| 지도 (공식 쉼터 · AI 추정 쉼터 · 건물 하이라이트 · 5가지 정렬) | `ui/mapview.py` |
+| 장소 상세 (온도 · AI 쾌적 점수 · 혼잡도 준비 중 · 민폐도 · 추천 이유) | `ui/detail.py` |
+| AI 추천 대화 | `ui/chat.py`, `assistant.py` |
+| 즐겨찾기 · 설정 | `ui/favorites.py`, `ui/settings_view.py` |
+
+| 항목 | 출처 | 코드 |
+|---|---|---|
+| 지도 | OpenFreeMap (키 불필요) | `src/mapStyle.ts` |
+| 쉼터 | `shelters_near` RPC — 현재 위치 반경 (기본 2.5km) | `src/places.ts` |
+| 기온 | `weather` Edge Function | `src/analysis.ts` |
+| 민폐도 | `ai` Edge Function (Gemini) → 실패 시 규칙 기반 | `src/nuisance.ts`, `src/analysis.ts` |
+| AI 추정 쉼터 | Overpass(OSM 상호) + `ai` Edge Function 판단 | `src/candidates.ts` |
+| 현재 위치 | `expo-location` | `src/store.tsx` |
+
+분류 규칙·추정치·루브릭 허용값은 데스크톱 코드와 같아야 합니다. 한쪽을 고치면 다른 쪽도 고칩니다.
+혼잡도는 데스크톱처럼 'COMING SOON' 이고, 행사(이벤트) 정보는 데스크톱에서도 데모 데이터라 옮기지 않았습니다.
 
 ## 처음 한 번
 

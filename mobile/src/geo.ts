@@ -46,6 +46,12 @@ export function haversine(lat1: number, lon1: number, lat2: number, lon2: number
   return 2 * 6371000 * Math.asin(Math.sqrt(a));
 }
 
-export function formatDistance(m: number): string {
-  return m < 1000 ? `${Math.round(m)}m` : `${(m / 1000).toFixed(1)}km`;
+/** coolmap/data.py distance_label 과 같다 */
+export function distanceLabel(m: number): string {
+  return m >= 1000 ? `${(m / 1000).toFixed(1)}km` : `${Math.round(m / 10) * 10}m`;
+}
+
+/** 도보 시간 (분). 평균 67m/분. */
+export function walkMinutes(m: number): number {
+  return Math.max(1, Math.round(m / 67));
 }

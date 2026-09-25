@@ -7,12 +7,21 @@ export const STYLE_URL = "https://tiles.openfreemap.org/styles/dark";
 
 const KOREAN_LABEL = ["coalesce", ["get", "name:ko"], ["get", "name"]];
 
+// 냉방·난방 어느 테마에도 어울리도록 무채색으로 둔다
+const BUILDING_FILL = "#1D2027";
+const BUILDING_EDGE = "#3E4451";
+
 export async function loadMapStyle(): Promise<StyleSpecification | string> {
   try {
     const res = await fetch(STYLE_URL);
     if (!res.ok) return STYLE_URL;
     const style = (await res.json()) as StyleSpecification;
     for (const layer of style.layers) {
+      // 기본 건물 색(rgb 10)이 배경(rgb 12)과 거의 같아 외곽선이 보이지 않는다
+      if (layer.id === "building" && layer.type === "fill") {
+        layer.paint = { ...layer.paint, "fill-color": BUILDING_FILL, "fill-outline-color": BUILDING_EDGE };
+        continue;
+      }
       if (layer.type !== "symbol" || !layer.layout?.["text-field"]) continue;
       // 도로 번호 같은 ref 라벨은 그대로 둔다
       if (!JSON.stringify(layer.layout["text-field"]).includes("name")) continue;

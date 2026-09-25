@@ -2,7 +2,7 @@
   "expo": {
     "name": "CoolMap",
     "slug": "coolmap",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -11,8 +11,9 @@
     },
     "android": {
       "package": "com.m34r1k.coolmap",
+      "versionCode": 3,
       "adaptiveIcon": {
-        "backgroundColor": "#070C14",
+        "backgroundColor": "#FFFFFF",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -33,7 +34,9 @@
         {
           "locationWhenInUsePermission": "가까운 냉난방 쉼터를 찾기 위해 현재 위치를 사용합니다."
         }
-      ]
-    ]
+      ],
+      "expo-router"
+    ],
+    "scheme": "coolmap"
   }
 }
