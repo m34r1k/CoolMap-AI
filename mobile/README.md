@@ -63,6 +63,26 @@ cd android
 
 받은 사람은 휴대폰에서 '출처를 알 수 없는 앱 설치'를 허용해야 설치됩니다.
 
+Mac 에서 빌드할 때는 Android Studio 의 SDK Manager 에서 **SDK Platform 36 · NDK 27.1.12297006 · CMake 3.22.1**
+을 받고, 아래처럼 환경변수를 붙여 실행합니다.
+
+```bash
+export JAVA_HOME=$(/usr/libexec/java_home -v 17) ANDROID_HOME=$HOME/Library/Android/sdk
+```
+
+### 새 버전 배포 (앱 안 업데이트)
+
+앱은 켤 때 GitHub 릴리스를 보고 새 버전이 있으면 홈 맨 위에 알림을 띄웁니다 (`src/update.ts`).
+
+1. `app.json` 의 `version` 과 `android.versionCode` 를 올립니다 (versionCode 는 반드시 커져야 설치됨).
+2. 위 방법으로 APK 를 빌드합니다.
+3. GitHub 에 **`mobile-v<version>`** 태그로 릴리스를 만들고 `.apk` 를 첨부합니다.
+   (예: `mobile-v0.2.6`. 데스크톱 릴리스 `v0.x` 와 섞이지 않게 `mobile-` 을 붙입니다.)
+   릴리스 설명은 앱에 보이지 않으니 자유롭게 씁니다.
+
+서명 키가 바뀌면 기존 앱 위에 설치되지 않습니다. 계속 같은 `debug.keystore`(Expo 템플릿 기본)로 서명합니다.
+0.2.4 이하를 쓰는 사람은 업데이트 기능이 없으므로 0.2.5 APK 를 한 번 직접 설치해야 합니다.
+
 지금은 Expo 템플릿의 테스트용 키(`debug.keystore`)로 서명합니다. 지인 배포에는 충분하지만
 Play 스토어에 올리려면 전용 서명 키를 만들어야 합니다.
 
