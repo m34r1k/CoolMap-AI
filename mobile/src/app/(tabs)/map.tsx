@@ -386,7 +386,8 @@ function NearbyList({
   const open = ranked.filter((a) => a.crowd.openNow).length;
 
   return (
-    <View>
+    // 패널 높이(최대 48%)를 넘지 않게 줄어들어야 목록 끝까지 스크롤된다
+    <View style={styles.shrink}>
       <View style={styles.listHead}>
         <Text style={[styles.title, { color: p.text }]}>
           주변 쉼터 {ranked.length}곳<Text style={{ color: p.good }}>  · 지금 열림 {open}</Text>
@@ -414,7 +415,7 @@ function NearbyList({
           반경 {s.settings.searchRadius / 1000}km · 도보 {s.settings.maxWalk}분 안에 {kind}가 없습니다
         </Text>
       ) : (
-        <ScrollView style={styles.list}>
+        <ScrollView style={styles.list} contentContainerStyle={styles.listEnd}>
           {ranked.slice(0, 40).map((a) => (
             <PlaceRow key={a.place.id} a={a} p={p} selected={false} onPress={() => onSelect(a)} />
           ))}
@@ -538,7 +539,9 @@ const styles = StyleSheet.create({
   sorts: { gap: 6, paddingVertical: 6 },
   sortChip: { borderWidth: 1, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 5 },
   sortText: { fontSize: 12, fontWeight: "700" },
+  shrink: { flexShrink: 1 },
   list: { marginTop: 4 },
+  listEnd: { paddingBottom: 8 },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 10 },
   actions: { flexDirection: "row", gap: 10, marginTop: 14 },
   primary: { flex: 1, borderRadius: 12, paddingVertical: 12 },

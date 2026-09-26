@@ -17,6 +17,7 @@ import {
 import { type Analysis, analyze, type Now, nowParts, type Weather, weatherFromObs } from "./analysis";
 import { sheltersNear, weather as fetchWeather } from "./backend";
 import { mergeCandidates, nearbyCandidates } from "./candidates";
+import { haversine, walkMinutes } from "./geo";
 import { onNuisance } from "./nuisance";
 import { type Place, shelterToPlace } from "./places";
 import { load, save } from "./storage";
@@ -321,8 +322,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const analyses = useMemo(() => {
     let out = places.map(analyzePlace);
     if (settings.onlyOfficial) out = out.filter((a) => a.place.official);
-    return out.filter((a) => a.walkMin <= settings.maxWalk);
-  }, [places, analyzePlace, settings.onlyOfficial, settings.maxWalk]);
+    // 도보 제한은 검색한 곳 기준으로 건다. 내 위치 기준으로 걸면 '이 지역에서 다시 찾기' 로
+    // 멀리 옮긴 곳의 쉼터가 모두 걸러진다. 표시하는 거리·도보 시간은 그대로 내 위치 기준이다.
+    const [lon, lat] = searchCenter;
+    return out.filter((a) => walkMinutes(haversine(lat, lon, a.place.lat, a.place.lon)) <= settings.maxWalk);
+  }, [places, analyzePlace, settings.onlyOfficial, settings.maxWalk, searchCenter]);
 
   const getPlace = useCallback(
     (id: string) => seen.get(id) ?? settings.favorites.find((f) => f.id === id),
