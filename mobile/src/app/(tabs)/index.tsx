@@ -159,7 +159,7 @@ function MapPreview() {
           mapStyle={style}
           logo={false}
           compass={false}
-          attribution={false}
+          attributionPosition={{ bottom: 4, right: 4 }}
           dragPan={false}
           touchZoom={false}
           doubleTapZoom={false}

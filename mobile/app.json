@@ -2,16 +2,19 @@
   "expo": {
     "name": "CoolMap",
     "slug": "coolmap",
-    "version": "0.2.2",
+    "version": "0.2.3",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "ios": {
-      "supportsTablet": true
+      "bundleIdentifier": "com.m34r1k.coolmap",
+      "buildNumber": "1",
+      "supportsTablet": false,
+      "appleTeamId": "8R3K6WU767"
     },
     "android": {
       "package": "com.m34r1k.coolmap",
-      "versionCode": 5,
+      "versionCode": 6,
       "adaptiveIcon": {
         "backgroundColor": "#FFFFFF",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -32,10 +35,13 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "가까운 냉난방 쉼터를 찾기 위해 현재 위치를 사용합니다."
+          "locationWhenInUsePermission": "가까운 냉난방 쉼터를 찾기 위해 현재 위치를 사용합니다.",
+          "locationAlwaysAndWhenInUsePermission": false,
+          "locationAlwaysPermission": false
         }
       ],
-      "expo-router"
+      "expo-router",
+      "./plugins/withSceneLifecycle"
     ],
     "scheme": "coolmap"
   }

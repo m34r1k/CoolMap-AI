@@ -1,6 +1,6 @@
-# CoolMap 모바일 (Android)
+# CoolMap 모바일 (Android · iOS)
 
-데스크톱 앱과 같은 CoolMap 서버(Supabase)를 쓰는 Android 앱입니다. Expo(React Native) + Expo Router + MapLibre.
+데스크톱 앱과 같은 CoolMap 서버(Supabase)를 쓰는 Android · iOS 앱입니다. 코드는 하나이고 두 플랫폼에서 같이 돌아갑니다. Expo(React Native) + Expo Router + MapLibre.
 화면 구성과 계산은 데스크톱 앱(`../coolmap`)을 그대로 옮겼습니다.
 
 | 화면 | 데스크톱 원본 |
@@ -23,7 +23,7 @@
 분류 규칙·추정치·루브릭 허용값은 데스크톱 코드와 같아야 합니다. 한쪽을 고치면 다른 쪽도 고칩니다.
 혼잡도는 데스크톱처럼 'COMING SOON' 이고, 행사(이벤트) 정보는 데스크톱에서도 데모 데이터라 옮기지 않았습니다.
 
-## 처음 한 번
+## 처음 한 번 (Android)
 
 1. **서버에 RPC 적용** — `../supabase/migrations/20260924000000_shelters_near.sql` 을
    Supabase 대시보드 SQL Editor 에서 실행합니다.
@@ -37,7 +37,7 @@
 4. **경로에 한글·공백이 없는 곳에서 빌드** — Android 네이티브 빌드(CMake)는 경로에 한글이나
    공백이 있으면 실패합니다. 예: `git clone … C:\dev\coolmap` 후 `C:\dev\coolmap\mobile` 에서 실행.
 
-## 실행
+## 실행 (Android)
 
 ```bash
 npm install
@@ -65,3 +65,51 @@ cd android
 
 지금은 Expo 템플릿의 테스트용 키(`debug.keystore`)로 서명합니다. 지인 배포에는 충분하지만
 Play 스토어에 올리려면 전용 서명 키를 만들어야 합니다.
+
+## iOS (Mac 필요)
+
+iOS 빌드는 Mac 에서만 됩니다. 서버 RPC(위 1번)는 Android 와 같이 한 번만 적용하면 됩니다.
+
+### 처음 한 번
+
+1. **Xcode** 를 App Store 에서 설치하고 한 번 실행해 추가 구성요소를 설치합니다.
+2. **iOS 시뮬레이터 런타임** — Xcode → Settings → Components 에서 iOS 를 받거나
+   `xcodebuild -downloadPlatform iOS` 를 실행합니다. (`xcrun simctl list runtimes` 에 iOS 가 보이면 됨)
+3. **CocoaPods** — `brew install cocoapods`
+
+### 시뮬레이터에서 실행
+
+```bash
+npm install
+npx expo run:ios            # 시뮬레이터를 띄우고 개발 빌드를 설치·실행
+```
+
+위치는 시뮬레이터 메뉴 Features → Location → Custom Location 에서 위도·경도를 넣어 바꿉니다
+(예: 서울시청 37.5663, 126.9779).
+
+`ios/` 폴더도 빌드할 때 자동으로 만들어지며 저장소에 올리지 않습니다. 설정은 `app.json` 의 `ios` 에서 바꿉니다.
+
+iOS 27 SDK(Xcode 27)로 빌드한 앱은 UIScene 생명주기를 쓰지 않으면 실행하자마자 멈춥니다.
+Expo SDK 57 템플릿은 아직 그렇게 되어 있지 않아 `plugins/withSceneLifecycle.js` 가 `ios/` 를 만들 때
+SDK 58 템플릿과 같게 고칩니다. Expo SDK 58 이상으로 올리면 이 플러그인을 지웁니다.
+
+### 내 아이폰에 설치 (무료 Apple ID)
+
+1. 아이폰을 Mac 에 케이블로 연결하고 '이 컴퓨터를 신뢰' 를 누릅니다.
+2. 아이폰 설정 → 개인정보 보호 및 보안 → **개발자 모드** 를 켭니다 (재시동됨).
+3. `open ios/CoolMap.xcworkspace` → CoolMap 타깃 → Signing & Capabilities 에서
+   Team 에 본인 Apple ID 를 추가·선택합니다. (번들 ID 가 겹친다고 하면 `app.json` 의
+   `ios.bundleIdentifier` 끝에 아무 글자나 붙입니다)
+4. `npx expo run:ios --device --configuration Release` 로 설치합니다.
+   Release 로 설치하면 Mac 의 개발 서버 없이도 앱이 열립니다.
+5. 처음 열 때 막히면 아이폰 설정 → 일반 → VPN 및 기기 관리 에서 본인 계정을 신뢰합니다.
+
+무료 Apple ID 로 설치한 앱은 **7일 뒤에 열리지 않습니다.** 다시 연결해 4번을 실행하면
+7일이 연장되고, 지우지 않고 덮어 설치하므로 즐겨찾기·설정은 남습니다.
+친구 아이폰도 같은 방법으로 설치할 수 있지만 7일마다 Mac 에 연결해야 합니다.
+
+### 여러 사람에게 배포
+
+iOS 에는 APK 처럼 파일로 나눠 주는 방법이 없습니다.
+Apple Developer Program(연 $99)에 가입한 뒤 TestFlight(초대 링크로 설치, 빌드당 90일)나
+App Store 로 배포합니다.

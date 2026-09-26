@@ -4,7 +4,7 @@
 // (대중교통만 된다). 그냥 geo: 로 넘기면 구글 지도가 기본 경로를 찾다가 실패하므로,
 // 도보 경로가 되는 카카오맵·네이버 지도를 먼저 권하고 구글 지도는 대중교통으로 연다.
 
-import { Alert, Linking } from "react-native";
+import { Alert, Linking, Platform } from "react-native";
 
 import type { Place } from "./places";
 
@@ -58,5 +58,8 @@ export function openDirections(p: Place, from: [number, number] | null): void {
             `&destination=${p.lat},${p.lon}&travelmode=transit`,
         ]),
     },
-  ]);
+    // iOS 알림창은 바깥을 눌러도 닫히지 않으므로 취소 버튼을 둔다.
+    // Android 는 버튼이 3개까지만 보이므로 대신 바깥을 눌러 닫게 한다.
+    ...(Platform.OS === "ios" ? [{ text: "취소", style: "cancel" as const }] : []),
+  ], { cancelable: true });
 }
