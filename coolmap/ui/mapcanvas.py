@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from functools import lru_cache
 
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (
@@ -12,6 +13,7 @@ from PySide6.QtGui import (
     QPainter,
     QPainterPath,
     QPen,
+    QPixmap,
     QPolygonF,
     QRadialGradient,
 )
@@ -28,6 +30,26 @@ from .common import crowd_color, mono, ui_font
 MIN_ZOOM = 12.0
 MAX_ZOOM = 18.6
 DEFAULT_ZOOM = 15.4
+
+#: 마커 레이어를 화면보다 이만큼(px) 넓게 그려 둔다. 이 안에서 움직이는 동안은
+#: 다시 그리지 않고 옮겨 붙이기만 한다.
+LAYER_MARGIN = 320
+#: 레이어 밖으로 이 거리(px) 넘게 떨어진 장소는 그리지 않는다 (라벨·화살표 꼬리 여유)
+CULL_MARGIN = 260
+#: 라벨 이미지 가장자리 여유 (그림자·안티앨리어싱이 잘리지 않게)
+LABEL_PAD = 4
+
+
+@lru_cache(maxsize=None)
+def _label_fonts() -> tuple[QFont, QFont, QFontMetrics, QFontMetrics]:
+    name, meta = ui_font(11, QFont.Bold), mono(9, QFont.DemiBold, 0.8)
+    return name, meta, QFontMetrics(name), QFontMetrics(meta)
+
+
+@lru_cache(maxsize=2048)
+def _label_width(name: str, meta: str) -> int:
+    _n, _m, fm, fm2 = _label_fonts()
+    return max(fm.horizontalAdvance(name), fm2.horizontalAdvance(meta)) + 44
 
 
 class MapCanvas(QWidget):
@@ -58,14 +80,32 @@ class MapCanvas(QWidget):
         self._drag_center: tuple[float, float] | None = None
         self._user_moved = False
 
+        # 클릭 판정 영역 — 현재 줌의 월드 픽셀 좌표
         self._hit_zones: list[tuple[QRectF, str]] = []
+        # 그리는 좌표 = 월드 픽셀 - (_ox, _oy). 화면이면 화면 좌상단, 레이어면 레이어 좌상단
+        self._ox = self._oy = 0.0
+        self._clamp: QRectF | None = None     # 라벨을 이 안으로 밀어 넣는다 (화면일 때만)
+
+        # 마커·라벨 레이어 캐시. 지도를 끄는 동안 마커는 평행이동만 하므로
+        # 매 프레임 수십 개의 건물 외곽선·라벨을 다시 그리지 않고 한 장을 옮겨 붙인다.
+        self._layer: QPixmap | None = None
+        self._layer_key: tuple | None = None
+        self._layer_rect = QRectF()           # 레이어가 덮는 영역 (월드 픽셀)
+        self._layer_zones: list[tuple[QRectF, str]] = []
+        self._data_ver = 0
+        self._sprites: dict[tuple, QPixmap] = {}     # 라벨 이미지 캐시
+        self._zooming = False
+        self._zoom_settle = QTimer(self)
+        self._zoom_settle.setSingleShot(True)
+        self._zoom_settle.setInterval(160)
+        self._zoom_settle.timeout.connect(self._zoom_settled)
         self._phase = 0.0
         self.radius = 0.0
 
         self.tiles = providers.tile_provider()
         self.buildings = providers.building_provider()
         self.tiles.tileReady.connect(self._deferred_update)
-        self.buildings.updated.connect(self._deferred_update)
+        self.buildings.updated.connect(self._on_buildings)
         self._building_cache: dict[str, dict | None] = {}
 
         self._timer = QTimer(self)
@@ -77,6 +117,7 @@ class MapCanvas(QWidget):
         self._analyses = {a.place.id: a for a in analyses}
         self._places = [a.place for a in analyses]
         self._events = events
+        self._data_ver += 1
         self.update()
 
     def apply_palette(self, p: Palette) -> None:
@@ -87,6 +128,10 @@ class MapCanvas(QWidget):
     def set_selected(self, place_id: str | None) -> None:
         self._selected = place_id
         self.update()
+
+    def _on_buildings(self) -> None:
+        self._data_ver += 1          # 건물 외곽선이 새로 생겼으니 레이어를 다시 그린다
+        self._deferred_update()
 
     def _deferred_update(self) -> None:
         # 워커 스레드에서 오는 신호 → 다음 이벤트 루프에서 리페인트
@@ -111,6 +156,19 @@ class MapCanvas(QWidget):
         wx, wy = self._world_px(lat, lon)
         cx, cy = self._world_px(*self._center)
         return QPointF(self.width() / 2 + wx - cx, self.height() / 2 + wy - cy)
+
+    def _pt(self, lat: float, lon: float) -> QPointF:
+        """그리는 중인 면(화면 또는 레이어) 위의 좌표."""
+        wx, wy = self._world_px(lat, lon)
+        return QPointF(wx - self._ox, wy - self._oy)
+
+    def _view_origin(self) -> tuple[float, float]:
+        """화면 좌상단의 월드 픽셀 좌표."""
+        cx, cy = self._world_px(*self._center)
+        return cx - self.width() / 2, cy - self.height() / 2
+
+    def _zone(self, rect: QRectF, pid: str) -> None:
+        self._hit_zones.append((rect.translated(self._ox, self._oy), pid))
 
     def to_latlon(self, pt: QPointF) -> tuple[float, float]:
         cx, cy = self._world_px(*self._center)
@@ -163,8 +221,14 @@ class MapCanvas(QWidget):
         self.update()
         self.viewChanged.emit()
 
+    def _zoom_settled(self) -> None:
+        self._zooming = False
+        self.update()
+
     def zoom_by(self, factor: float, anchor: QPointF | None = None) -> None:
         self._user_moved = True
+        self._zooming = True
+        self._zoom_settle.start()
         delta = math.log2(factor)
         if anchor is None:
             self._zoom = max(MIN_ZOOM, min(MAX_ZOOM, self._zoom + delta))
@@ -247,6 +311,8 @@ class MapCanvas(QWidget):
             self.placeActivated.emit(hit)
 
     def _hit_test(self, pos: QPointF) -> str | None:
+        ox, oy = self._view_origin()
+        pos = QPointF(pos.x() + ox, pos.y() + oy)
         for rect, pid in reversed(self._hit_zones):
             if rect.contains(pos):
                 return pid
@@ -265,12 +331,13 @@ class MapCanvas(QWidget):
             clip.addRoundedRect(QRectF(self.rect()), self.radius, self.radius)
             p.setClipPath(clip)
         p.fillRect(self.rect(), QColor(pal.map_bg))
+        self._ox, self._oy = self._view_origin()
+        self._clamp = QRectF(self.rect())
 
         self._draw_tiles(p, pal)
         if self.state.get("show_event_zones"):
             self._draw_events(p, pal)
 
-        self._hit_zones = []
         self._draw_markers(p, pal)
         self._draw_user(p, pal)
         self._draw_overlay(p, pal)
@@ -312,7 +379,7 @@ class MapCanvas(QWidget):
         if mpp <= 0:
             return
         for ev in self._events:
-            c = self.to_screen(ev.lat, ev.lon)
+            c = self._pt(ev.lat, ev.lon)
             r = ev.radius / mpp
             if r < 8:
                 continue
@@ -350,14 +417,75 @@ class MapCanvas(QWidget):
         if self._zoom >= 14.5:
             self.buildings.buildings_in(*self.visible_bounds())
 
+        pm, rect, f = self._marker_layer(pal)
+        target = rect.translated(-self._ox, -self._oy)
+        if f == 1.0:
+            p.drawPixmap(target.topLeft(), pm)
+            self._hit_zones = list(self._layer_zones)
+        else:
+            p.drawPixmap(target, pm, QRectF(pm.rect()))
+            self._hit_zones = [(QRectF(r.x() * f, r.y() * f, r.width() * f, r.height() * f), pid)
+                               for r, pid in self._layer_zones]
+
+        # 선택·호버한 장소는 애니메이션이 있고 맨 위에 와야 하므로 매 프레임 직접 그린다
+        live = [pl for pl in self._places if pl.id in (self._selected, self._hover)]
+        live.sort(key=lambda pl: pl.id == self._selected)
+        self._draw_places(p, pal, live, None)
+
+    def _marker_layer(self, pal: Palette) -> tuple[QPixmap, QRectF, float]:
+        """선택·호버하지 않은 장소들을 그린 레이어. 필요할 때만 다시 그린다.
+
+        (레이어, 현재 줌에서 레이어가 덮는 월드 픽셀 영역, 레이어를 늘릴 배율)
+        """
+        s = self.state
+        dpr = self.devicePixelRatioF()
+        key = (self._zoom, self.width(), self.height(), dpr, self._data_ver,
+               self._selected, self._hover, pal.key,
+               s.get("show_closed"), s.get("map_labels"), s.get("marker_style"))
+        view = QRectF(self._ox, self._oy, self.width(), self.height())
+        if (self._layer is not None and key == self._layer_key
+                and self._layer_rect.contains(view)):
+            return self._layer, self._layer_rect, 1.0
+        # 휠로 줌하는 동안에는 줌 단계마다 다시 그리지 않고 있던 레이어를 늘려 쓴다.
+        # 멈추면 _zoom_settle 이 선명하게 다시 그리게 한다.
+        if (self._zooming and self._layer is not None and self._layer_key is not None
+                and key[1:] == self._layer_key[1:]):
+            f = 2.0 ** (self._zoom - self._layer_key[0])
+            r = self._layer_rect
+            return self._layer, QRectF(r.x() * f, r.y() * f, r.width() * f, r.height() * f), f
+
+        rect = view.adjusted(-LAYER_MARGIN, -LAYER_MARGIN, LAYER_MARGIN, LAYER_MARGIN)
+        pm = QPixmap(math.ceil(rect.width() * dpr), math.ceil(rect.height() * dpr))
+        pm.setDevicePixelRatio(dpr)
+        pm.fill(Qt.transparent)
+        lp = QPainter(pm)
+        lp.setRenderHint(QPainter.Antialiasing)
+        lp.setRenderHint(QPainter.TextAntialiasing)
+
+        saved = (self._ox, self._oy, self._clamp)
+        self._ox, self._oy, self._clamp = rect.left(), rect.top(), None
+        self._hit_zones = []
+        rest = [pl for pl in self._places if pl.id not in (self._selected, self._hover)]
+        cull = QRectF(0, 0, rect.width(), rect.height()).adjusted(
+            -CULL_MARGIN, -CULL_MARGIN, CULL_MARGIN, CULL_MARGIN)
+        self._draw_places(lp, pal, rest, cull)
+        lp.end()
+        self._layer_zones = self._hit_zones
+        self._ox, self._oy, self._clamp = saved
+
+        self._layer, self._layer_key, self._layer_rect = pm, key, rect
+        return pm, rect, 1.0
+
+    def _draw_places(self, p: QPainter, pal: Palette, places: list[Place],
+                     cull: QRectF | None) -> None:
         label_rects: list[QRectF] = []
-        ordered = sorted(self._places,
-                         key=lambda pl: (pl.id == self._selected, pl.id == self._hover))
-        for place in ordered:
+        for place in places:
             a = self._analyses.get(place.id)
             if a is None:
                 continue
             if not self.state.get("show_closed") and not a.crowd.open_now:
+                continue
+            if cull is not None and not cull.contains(self._pt(place.lat, place.lon)):
                 continue
             style = self.state.marker_style_for(place)
             selected = place.id == self._selected
@@ -371,8 +499,7 @@ class MapCanvas(QWidget):
             if self.state.get("map_labels") and not self.compact:
                 self._draw_label(p, pal, place, a, anchor, label_rects, selected, hovered)
             else:
-                self._hit_zones.append(
-                    (QRectF(anchor.x() - 16, anchor.y() - 16, 32, 32), place.id))
+                self._zone(QRectF(anchor.x() - 16, anchor.y() - 16, 32, 32), place.id)
 
     def _accent_for(self, pal: Palette, a: Analysis) -> QColor:
         return QColor(pal.text_mute) if not a.crowd.open_now else QColor(pal.accent)
@@ -392,7 +519,7 @@ class MapCanvas(QWidget):
                                a: Analysis, selected: bool, hovered: bool) -> QPointF:
         """실제 건물 외곽선을 하이라이트 (없으면 원형으로 폴백)."""
         color = self._accent_for(pal, a)
-        center = self.to_screen(place.lat, place.lon)
+        center = self._pt(place.lat, place.lon)
         b = self._building_for(place)
         # AI 추정 쉼터는 공식 쉼터보다 약하게 — 눈에는 띄되 먼저 읽히지는 않게
         guess = place.ai_guess
@@ -418,7 +545,7 @@ class MapCanvas(QWidget):
             p.drawEllipse(center, r, r)
             return QPointF(center.x(), center.y() - r)
 
-        poly = QPolygonF([self.to_screen(la, lo) for la, lo in b["poly"]])
+        poly = QPolygonF([self._pt(la, lo) for la, lo in b["poly"]])
         rect = poly.boundingRect()
         pulse = (math.sin(self._phase * 1.6) * 0.5 + 0.5) if selected else 0.5
         strength = (1.0 if (selected or hovered) else 0.72) * (0.55 if guess else 1.0)
@@ -431,6 +558,9 @@ class MapCanvas(QWidget):
         p.setBrush(Qt.NoBrush)
         p.drawPolygon(poly)
 
+        # 흐린 번짐 띠라 안티앨리어싱이 없어도 티가 안 난다. 넓은 선의 안티앨리어싱은
+        # 비싸서(장소마다 3겹) 여기서만 끈다.
+        p.setRenderHint(QPainter.Antialiasing, False)
         for w, alpha in ((14, 22), (9, 34), (5, 54)):
             pen = QPen(QColor(color.red(), color.green(), color.blue(),
                               int(alpha * strength)))
@@ -439,6 +569,7 @@ class MapCanvas(QWidget):
             p.setPen(pen)
             p.setBrush(Qt.NoBrush)
             p.drawPolygon(poly)
+        p.setRenderHint(QPainter.Antialiasing, True)
 
         fill = QColor(color)
         if guess:
@@ -467,7 +598,7 @@ class MapCanvas(QWidget):
                            a: Analysis, selected: bool, hovered: bool) -> QPointF:
         """상가 내부 업소 — 정확한 지점을 화살표로 지시."""
         color = self._accent_for(pal, a)
-        target = self.to_screen(place.lat, place.lon)
+        target = self._pt(place.lat, place.lon)
 
         seed = sum(ord(c) for c in place.id)
         angle = math.radians(214 + (seed % 4) * 33)
@@ -478,7 +609,7 @@ class MapCanvas(QWidget):
 
         b = self._building_for(place)
         if b is not None and self._zoom >= 14.5:
-            poly = QPolygonF([self.to_screen(la, lo) for la, lo in b["poly"]])
+            poly = QPolygonF([self._pt(la, lo) for la, lo in b["poly"]])
             pen = QPen(QColor(color.red(), color.green(), color.blue(), 95))
             pen.setWidthF(1.5)
             pen.setStyle(Qt.DashLine)
@@ -541,36 +672,67 @@ class MapCanvas(QWidget):
             p.setFont(mono(9, QFont.Bold))
             p.drawText(badge, Qt.AlignCenter, place.floor_hint)
 
-        self._hit_zones.append((QRectF(target.x() - 14, target.y() - 14, 28, 28), place.id))
+        self._zone(QRectF(target.x() - 14, target.y() - 14, 28, 28), place.id)
         return tail
 
     def _draw_label(self, p: QPainter, pal: Palette, place: Place, a: Analysis,
                     anchor: QPointF, taken: list[QRectF],
                     selected: bool, hovered: bool) -> None:
-        name_font = ui_font(11, QFont.Bold)
-        meta_font = mono(9, QFont.DemiBold, 0.8)
-        fm = QFontMetrics(name_font)
-        fm2 = QFontMetrics(meta_font)
-
         meta = (f"{a.indoor:.0f}°C · 민폐도 {a.nuisance.score}"
                 if a.crowd.open_now else "운영 종료")
         if place.ai_guess:
             # 공식 쉼터가 아니라는 사실이 라벨만 보고도 드러나야 한다
             meta = f"AI 추정 · {meta}"
-        w = max(fm.horizontalAdvance(place.name), fm2.horizontalAdvance(meta)) + 44
+        w = _label_width(place.name, meta)
         h = 40
         rect = QRectF(anchor.x() - w / 2, anchor.y() - h - 14, w, h)
-        rect.moveLeft(max(6.0, min(rect.left(), self.width() - w - 6)))
-        rect.moveTop(max(6.0, rect.top()))
+        if self._clamp is not None:
+            rect.moveLeft(max(6.0, min(rect.left(), self._clamp.right() - w - 6)))
+            rect.moveTop(max(6.0, rect.top()))
 
         if not (selected or hovered):
             for t in taken:
                 if rect.intersects(t.adjusted(-4, -4, 4, 4)):
-                    self._hit_zones.append(
-                        (QRectF(anchor.x() - 14, anchor.y() - 14, 28, 28), place.id))
+                    self._zone(QRectF(anchor.x() - 14, anchor.y() - 14, 28, 28), place.id)
                     self._draw_mini_dot(p, pal, a, anchor)
                     return
         taken.append(rect)
+
+        # 픽셀 격자에 맞춰 붙여야 글자가 흐려지지 않는다
+        rect.moveTo(round(rect.left()), round(rect.top()))
+        sprite = self._label_sprite(pal, place, a, meta, w, h, selected, hovered)
+        p.drawPixmap(QPointF(rect.left() - LABEL_PAD, rect.top() - LABEL_PAD), sprite)
+
+        color = self._accent_for(pal, a)
+        leader_a = QPointF(rect.center().x(), rect.bottom())
+        leader_b = QPointF(anchor.x(), anchor.y() - 3)
+        p.setPen(QPen(QColor(0, 0, 0, 110), 3.0))
+        p.drawLine(leader_a, leader_b)
+        pen = QPen(QColor(color.red(), color.green(), color.blue(), 190))
+        pen.setWidthF(1.5)
+        p.setPen(pen)
+        p.drawLine(leader_a, leader_b)
+
+        self._zone(rect, place.id)
+
+    def _label_sprite(self, pal: Palette, place: Place, a: Analysis, meta: str,
+                      w: float, h: float, selected: bool, hovered: bool) -> QPixmap:
+        """라벨 상자 한 장. 내용이 같으면 그려 둔 것을 다시 쓴다."""
+        dpr = self.devicePixelRatioF()
+        key = (place.id, place.name, place.icon, place.ai_guess, meta, w, pal.key, dpr,
+               selected, hovered, a.crowd.open_now, a.nuisance.key, a.crowd.by_event)
+        pm = self._sprites.get(key)
+        if pm is not None:
+            return pm
+
+        name_font, meta_font, _fm, _fm2 = _label_fonts()
+        pm = QPixmap(math.ceil((w + LABEL_PAD * 2) * dpr), math.ceil((h + LABEL_PAD * 2) * dpr))
+        pm.setDevicePixelRatio(dpr)
+        pm.fill(Qt.transparent)
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setRenderHint(QPainter.TextAntialiasing)
+        rect = QRectF(LABEL_PAD, LABEL_PAD, w, h)
 
         color = self._accent_for(pal, a)
         # 지도 위에 얹히므로 살짝 그림자를 깔아 띄운다
@@ -585,15 +747,6 @@ class MapCanvas(QWidget):
                                 1.8 if selected else 1.3, place.ai_guess)
         p.setPen(pen)
         p.drawRoundedRect(rect, 10, 10)
-
-        leader_a = QPointF(rect.center().x(), rect.bottom())
-        leader_b = QPointF(anchor.x(), anchor.y() - 3)
-        p.setPen(QPen(QColor(0, 0, 0, 110), 3.0))
-        p.drawLine(leader_a, leader_b)
-        pen = QPen(QColor(color.red(), color.green(), color.blue(), 190))
-        pen.setWidthF(1.5)
-        p.setPen(pen)
-        p.drawLine(leader_a, leader_b)
 
         icons.draw_icon(p, place.icon,
                         QRectF(rect.left() + 9, rect.top() + 11, 15, 15), color, 2.0)
@@ -613,8 +766,12 @@ class MapCanvas(QWidget):
         if a.crowd.by_event:
             p.setBrush(QColor(pal.warn))
             p.drawEllipse(QPointF(rect.right() - 12, rect.top() + 26), 3.0, 3.0)
+        p.end()
 
-        self._hit_zones.append((rect, place.id))
+        if len(self._sprites) > 600:
+            self._sprites.clear()
+        self._sprites[key] = pm
+        return pm
 
     def _draw_mini_dot(self, p: QPainter, pal: Palette, a: Analysis, anchor: QPointF) -> None:
         p.setPen(Qt.NoPen)
@@ -631,7 +788,7 @@ class MapCanvas(QWidget):
         p.drawEllipse(anchor, 5.5, 5.5)
 
     def _draw_user(self, p: QPainter, pal: Palette) -> None:
-        pos = self.to_screen(*self.state.origin)
+        pos = self._pt(*self.state.origin)
         accent = QColor(pal.accent_bright)
 
         if self.state.get("animations"):
