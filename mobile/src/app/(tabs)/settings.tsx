@@ -2,7 +2,7 @@
 
 import Constants from "expo-constants";
 import { useEffect, useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
+import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { clearCandidateCache, judgeStats, MIN_CONFIDENCE } from "../../candidates";
@@ -10,6 +10,7 @@ import { Card, Icon } from "../../components/ui";
 import { clearNuisanceCache, nuisanceStatus } from "../../nuisance";
 import { useStore } from "../../store";
 import type { Palette } from "../../theme";
+import { currentVersion, updatesSupported, useUpdate } from "../../update";
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
@@ -84,9 +85,11 @@ export default function SettingsScreen() {
         </View>
       </Section>
 
+      {updatesSupported && <UpdateSection p={p} />}
+
       <Section p={p} title="CoolMap 정보">
         <Text style={[styles.desc, { color: p.textDim }]}>
-          CoolMap AI · 냉난방 쉼터 지도 (Android {Constants.expoConfig?.version ?? ""}){"\n\n"}
+          CoolMap AI · 냉난방 쉼터 지도 ({Platform.OS === "ios" ? "iOS" : "Android"} {Constants.expoConfig?.version ?? ""}){"\n\n"}
           · 지도: OpenFreeMap(OpenStreetMap) 벡터 타일과 건물 외곽선을 사용합니다.{"\n"}
           · 날씨: 기상청 초단기실황의 실측값입니다.{"\n"}
           · 민폐도: Gemini가 시설 성격·구매 필요 여부·규모·공식 쉼터 지정 여부를 근거로 0~100으로 추정합니다.
@@ -96,6 +99,33 @@ export default function SettingsScreen() {
         </Text>
       </Section>
     </ScrollView>
+  );
+}
+
+function UpdateSection({ p }: { p: Palette }) {
+  const { update, state, check, install } = useUpdate();
+  const status =
+    state === "checking" ? "확인하는 중…"
+    : state === "downloading" ? "받는 중… 끝나면 설치 화면이 열립니다"
+    : state === "error" && update ? "받지 못했습니다. 다시 눌러 주세요"
+    : state === "error" ? "확인하지 못했습니다. 인터넷 연결을 확인해 주세요"
+    : update ? `새 버전 ${update.version} 이 있습니다 (${update.sizeMB.toFixed(0)}MB)`
+    : state === "latest" ? "최신 버전입니다"
+    : "";
+  return (
+    <Section p={p} title="앱 업데이트" desc={`지금 버전 ${currentVersion}. 새 버전은 GitHub 에서 받아 바로 설치합니다.`}>
+      {!!status && <Text style={[styles.desc, { color: update ? p.accent : p.textDim }]}>{status}</Text>}
+      <Pressable
+        onPress={update ? install : check}
+        disabled={state === "checking" || state === "downloading"}
+        style={[styles.updateBtn, { backgroundColor: update ? p.accent : "transparent", borderColor: update ? p.accent : p.border }]}
+      >
+        {(state === "checking" || state === "downloading") && <ActivityIndicator color={update ? p.accentInk : p.accent} />}
+        <Text style={[styles.updateText, { color: update ? p.accentInk : p.text }]}>
+          {update ? "업데이트 설치" : "업데이트 확인"}
+        </Text>
+      </Pressable>
+    </Section>
   );
 }
 
@@ -159,6 +189,16 @@ function Button({ p, icon, text, onPress }: { p: Palette; icon: string; text: st
 
 const styles = StyleSheet.create({
   page: { paddingHorizontal: 16, paddingBottom: 32 },
+  updateBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 11,
+  },
+  updateText: { fontSize: 14, fontWeight: "700" },
   h1: { fontSize: 28, fontWeight: "800" },
   title: { fontSize: 17, fontWeight: "800" },
   desc: { fontSize: 12, lineHeight: 18 },

@@ -58,8 +58,8 @@ export function openDirections(p: Place, from: [number, number] | null): void {
             `&destination=${p.lat},${p.lon}&travelmode=transit`,
         ]),
     },
-    // iOS 알림창은 바깥을 눌러도 닫히지 않아 취소 버튼이 있어야 빠져나올 수 있다.
-    // Android 알림창은 버튼을 3개까지만 보여 주므로 넣지 않는다 (바깥을 누르면 닫힌다)
+    // iOS 알림창은 바깥을 눌러도 닫히지 않으므로 취소 버튼을 둔다.
+    // Android 는 버튼이 3개까지만 보이므로 대신 바깥을 눌러 닫게 한다.
     ...(Platform.OS === "ios" ? [{ text: "취소", style: "cancel" as const }] : []),
   ], { cancelable: true });
 }

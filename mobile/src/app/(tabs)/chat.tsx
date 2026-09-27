@@ -4,6 +4,7 @@ import { router } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -54,7 +55,9 @@ export default function Chat() {
   };
 
   return (
-    <KeyboardAvoidingView behavior="height" style={[styles.fill, { backgroundColor: p.bg }]}>
+    <KeyboardAvoidingView
+      // iOS 는 키보드가 화면 위에 덮이므로 그만큼 아래 여백을 넣어 입력창을 밀어 올린다
+      behavior={Platform.OS === "ios" ? "padding" : "height"} style={[styles.fill, { backgroundColor: p.bg }]}>
       <View style={[styles.header, { paddingTop: insets.top + 12, borderColor: p.border, backgroundColor: p.panel }]}>
         <View style={[styles.avatar, { borderColor: p.accent, backgroundColor: p.accentSoft }]}>
           <Icon name="creation" size={22} color={p.accent} />

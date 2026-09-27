@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { clockLabel, rank } from "../../analysis";
 import { PlaceCard } from "../../components/PlaceCard";
 import { Card, Icon, Logo, SectionTitle } from "../../components/ui";
+import { UpdateBanner } from "../../components/UpdateBanner";
 import { loadMapStyle } from "../../mapStyle";
 import { useStore } from "../../store";
 import { type Mode, PALETTES } from "../../theme";
@@ -22,6 +23,7 @@ export default function Home() {
 
   return (
     <ScrollView style={{ backgroundColor: p.bg }} contentContainerStyle={[styles.page, { paddingTop: insets.top + 12 }]}>
+      <UpdateBanner p={p} />
       <View style={styles.header}>
         <Logo p={p} />
         <View style={[styles.outdoor, { borderColor: p.border, backgroundColor: p.card }]}>
@@ -159,7 +161,7 @@ function MapPreview() {
           mapStyle={style}
           logo={false}
           compass={false}
-          attribution={false}
+          attributionPosition={{ bottom: 4, right: 4 }}
           dragPan={false}
           touchZoom={false}
           doubleTapZoom={false}
