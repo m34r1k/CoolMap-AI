@@ -6,6 +6,9 @@
 웹앱이 아닌 Windows 네이티브 앱(Python + PySide6/Qt)으로 동작합니다.
 지도는 OpenStreetMap 타일, 날씨는 기상청 실측, 민폐도는 Gemini가 산출합니다.
 
+**📱 모바일 버전(Android · iOS)도 있습니다** — 같은 서버와 같은 기능을 휴대폰에서 씁니다.
+[아래 모바일 버전](#모바일-버전-android--ios) 참고.
+
 ```
 python main.py        또는   run.bat 더블클릭
 ```
@@ -18,6 +21,28 @@ python main.py
 ```
 
 Python 3.10 이상 / Windows 10·11에서 확인했습니다. (개발·검증 환경: Python 3.14, PySide6 6.11)
+
+설치 없이 실행 파일로 쓰려면 [Releases](https://github.com/m34r1k/CoolMap-AI/releases) 에서
+`CoolMapAI-v<버전>-win64.zip` 을 받아 압축을 풀고 `CoolMapAI.exe` 를 실행합니다.
+
+## 모바일 버전 (Android · iOS)
+
+데스크톱 앱과 같은 CoolMap 서버를 쓰는 휴대폰 앱입니다 (Expo · React Native · MapLibre).
+코드는 [`mobile/`](mobile/) 에 있습니다.
+
+- **Android** — [Releases](https://github.com/m34r1k/CoolMap-AI/releases) 에서 `mobile-v<버전>` 의
+  `.apk` 를 받아 설치합니다 ('출처를 알 수 없는 앱 설치' 허용 필요).
+  한 번 설치하면 새 버전이 나왔을 때 앱이 알려 주고 앱 안에서 바로 업데이트합니다.
+- **iOS** — 아직 App Store 배포는 하지 않습니다. Mac 에서 직접 빌드해 설치합니다.
+
+| 화면 | 기능 |
+|---|---|
+| 홈 | 냉방·난방 모드, 목표 온도, 지도 미리보기, AI 추천 |
+| 지도 | 공식 쉼터 · AI 추정 쉼터 · 건물 하이라이트 · 5가지 정렬 |
+| 장소 상세 | 온도 · AI 쾌적 점수 · 민폐도 · 추천 이유, 카카오맵·네이버 지도·구글 지도로 길찾기 |
+| AI 추천 대화 · 즐겨찾기 · 설정 | 데스크톱과 같음 |
+
+빌드·배포 방법(Android APK, iOS, 앱 안 업데이트용 릴리스)은 [mobile/README.md](mobile/README.md) 에 있습니다.
 
 ---
 
@@ -218,6 +243,7 @@ coolmap/
   ai.py                  혼잡도 예측(비활성) · 민폐도 · 쾌적 점수 · 추천 정렬
   assistant.py           자연어 질문 → 추천 응답
   config.py              앱 상태 · 설정 저장
+mobile/                  모바일 앱 (Android · iOS) — mobile/README.md 참고
 supabase/
   migrations/            테이블 · 권한 · 예약 작업 (SQL)
   functions/
