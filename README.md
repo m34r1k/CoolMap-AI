@@ -285,6 +285,17 @@ Supabase Edge Function Secrets 에만 있습니다.
 루브릭 · 스키마 · 허용 목록은 `providers/gemini.py`, `candidates.py` 와 `supabase/functions/ai` 에
 같은 내용이 있으므로 한쪽을 고치면 다른 쪽도 고쳐야 합니다.
 
+### 배포
+
+Supabase 가 GitHub 저장소와 연동돼 있어 **`main` 에 푸시하면 운영 서버에 바로 반영됩니다**
+(Deploy to production). `supabase/migrations/` 의 새 SQL 을 실행하고 `supabase/functions/` 를 다시 배포합니다.
+
+- SQL 변경은 대시보드 SQL Editor 가 아니라 `supabase/migrations/` 에 새 파일로 추가합니다.
+  대시보드에서 직접 바꾼 것은 저장소에 남지 않습니다.
+- 함수는 JWT 검사를 끈 채 배포해야 합니다 (`supabase/config.toml`). 앱은 공개 키만 보내므로
+  검사를 켜면 모든 호출이 401 로 막힙니다.
+- API 키(Gemini · 기상청 · 행안부)는 Edge Function Secrets 에만 두며 저장소에 올리지 않습니다.
+
 ## 현재 위치
 
 **브라우저의 `navigator.geolocation` 은 웹 전용이라 이 앱에서는 쓸 수 없습니다.**
