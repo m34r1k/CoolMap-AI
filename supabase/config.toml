@@ -1,0 +1,18 @@
+# Supabase GitHub 연동(Deploy to production)이 main 에 푸시될 때 읽는 설정.
+#
+# 함수는 로그인 토큰(JWT) 검사를 끈다. 앱은 공개 키(sb_publishable_…)만 보내는데
+# 이 키는 JWT 가 아니라서, 검사를 켜면 모든 호출이 401 로 막힌다.
+# 이 파일이 없으면 자동 배포가 검사를 켠 기본값으로 함수를 다시 올린다.
+#   - weather · ai : 누구나 부르는 공개 함수 (ai 는 IP 별 호출 한도로 막는다)
+#   - sync-shelters: pg_cron 이 x-sync-secret 헤더를 붙여 부른다
+
+project_id = "kgquzsmtjrlneveddaqv"
+
+[functions.weather]
+verify_jwt = false
+
+[functions.ai]
+verify_jwt = false
+
+[functions.sync-shelters]
+verify_jwt = false
