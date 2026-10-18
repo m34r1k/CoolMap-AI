@@ -130,6 +130,9 @@ const LIGHT_PALETTES: Record<Mode, Palette> = {
   },
 };
 
+/** 비·눈 색 — 추위 피하기(주황) 모드에서도 비는 파랗게 보이도록 모드와 상관없이 고정 */
+export const rainColor = (dark: boolean) => (dark ? "#60A5FA" : "#2563EB");
+
 export function paletteFor(mode: Mode, dark: boolean): Palette {
   return (dark ? DARK_PALETTES : LIGHT_PALETTES)[mode];
 }

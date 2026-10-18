@@ -47,9 +47,13 @@ export function sheltersNear(lat: number, lon: number, mode: Mode, radiusM: numb
   });
 }
 
+/** 한 시간의 하늘 예보. at: "2026101815" (한국 시각 YYYYMMDDHH), sky: 1 맑음 · 3 구름많음 · 4 흐림, pty: 0 없음 · 1 비 · 2 비/눈 · 3 눈 · 4 소나기 */
+export type SkyHour = { at: string; sky: number; pty: number; pop: number };
+
 export type WeatherResponse = {
   now: Record<string, string> | null;
   fcst: Record<string, number> | null;
+  sky?: SkyHour[] | null; // 지금부터 12시간 (예전 서버는 없음)
 };
 
 /** 기상청 초단기실황·단기예보 (weather Edge Function 경유) */

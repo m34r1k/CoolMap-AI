@@ -1,8 +1,13 @@
 // 기상청 단기예보 프록시 + 캐시.
 //
 // 호출:  GET /functions/v1/weather?nx=60&ny=127
-// 응답:  { now: {T1H, REH, WSD, ...} | null, now_age: 초,
-//          fcst: {"0": 24.0, ..., "23": 27.0} | null, fcst_age: 초 }
+// 응답:  { now: {T1H, REH, WSD, PTY, RN1, ...} | null, now_age: 초,
+//          fcst: {"0": 24.0, ..., "23": 27.0} | null, fcst_age: 초,
+//          sky: [{at: "2026101815", sky: 1|3|4, pty: 0~4, pop: %}, ...] | null }   ← 지금 시각부터 12시간
+//
+// sky 는 '비가 오는지 · 맑은지' 아이콘과 '3시쯤 비 소식' 안내에 쓴다 (예보의 SKY·PTY·POP).
+// 예보 행(data)에는 시간별 기온과 함께 sky 목록을 넣어 두고, 응답의 fcst 에는 기온만 담는다
+// (예전 앱은 fcst 의 키를 모두 시각으로 읽기 때문).
 //
 // 격자 단위로 weather_cache 에 저장해 두고, 실황은 30분·예보는 3시간 동안 재사용한다.
 // 이 함수는 공개 키만 있으면 누구나 부를 수 있으므로, 기상청을 새로 부르는 횟수를
@@ -77,13 +82,33 @@ async function fetchFcst(nx: number, ny: number) {
   const items = await kma("getVilageFcst", {
     base_date: bd, base_time: bt, nx, ny, pageNo: 1, numOfRows: 300,
   });
-  const temps: Record<string, number> = {};
+  const temps: Record<string, unknown> = {};
+  const sky = new Map<string, SkyHour>();
   for (const i of items) {
-    if (i.category !== "TMP") continue;
     const v = Number(i.fcstValue);
-    if (Number.isFinite(v)) temps[String(Number(i.fcstTime.slice(0, 2)))] = v;
+    if (!Number.isFinite(v)) continue;
+    if (i.category === "TMP") temps[String(Number(i.fcstTime.slice(0, 2)))] = v;
+    if (i.category !== "SKY" && i.category !== "PTY" && i.category !== "POP") continue;
+    const at = `${i.fcstDate}${i.fcstTime.slice(0, 2)}`;
+    const h = sky.get(at) ?? { at, sky: 0, pty: 0, pop: 0 };
+    h[i.category.toLowerCase() as "sky" | "pty" | "pop"] = v;
+    sky.set(at, h);
   }
+  if (Object.keys(temps).length) temps.sky = [...sky.values()].sort((a, b) => a.at.localeCompare(b.at));
   return temps;
+}
+
+type SkyHour = { at: string; sky: number; pty: number; pop: number };
+
+/** 예보 행 → 응답용 (기온만 · 지금부터 12시간의 하늘) */
+function splitFcst(data: Record<string, unknown> | undefined) {
+  if (!data) return { fcst: null, sky: null };
+  const fcst: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(data)) if (/^\d+$/.test(k)) fcst[k] = v;
+  const t = kst();
+  const hourKey = `${ymd(t)}${pad(t.getUTCHours())}`;
+  const sky = Array.isArray(data.sky) ? (data.sky as SkyHour[]).filter((h) => h.at >= hourKey).slice(0, 12) : null;
+  return { fcst, sky };
 }
 
 const json = (body: unknown, status = 200) =>
@@ -109,7 +134,8 @@ Deno.serve(async (req) => {
 
   const todo: Row["kind"][] = [];
   if (age(cached.now) > NOW_TTL) todo.push("now");
-  if (age(cached.fcst) > FCST_TTL) todo.push("fcst");
+  // 하늘 정보가 없는 예전 예보 행도 새로 받는다
+  if (age(cached.fcst) > FCST_TTL || !Array.isArray(cached.fcst?.data?.sky)) todo.push("fcst");
 
   let note = "";
   if (todo.length) {
@@ -137,10 +163,12 @@ Deno.serve(async (req) => {
     }
   }
 
+  const { fcst, sky } = splitFcst(cached.fcst?.data);
   return json({
     now: cached.now?.data ?? null,
     now_age: Number.isFinite(age(cached.now)) ? Math.round(age(cached.now)) : null,
-    fcst: cached.fcst?.data ?? null,
+    fcst,
+    sky,
     fcst_age: Number.isFinite(age(cached.fcst)) ? Math.round(age(cached.fcst)) : null,
     ...(note ? { note } : {}),
   });

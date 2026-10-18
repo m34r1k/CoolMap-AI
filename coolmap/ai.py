@@ -188,6 +188,21 @@ def live_weather(mode: str, hour: int, minute: int, latlon: tuple[float, float] 
         return weather_for(mode, hour, minute)
 
 
+def live_sky(latlon: tuple[float, float] | None = None) -> tuple[str, str, str]:
+    """(아이콘, '비가 와요', '오후 5시쯤 그칠 것 같아요'). 모르면 빈 글자 — plain.sky_line."""
+    from datetime import datetime
+
+    from . import providers
+    from .plain import sky_line
+
+    try:
+        wp = providers.weather_provider()
+        lat, lon = latlon or USER_HOME
+        return sky_line(wp.observation(lat, lon), wp.sky(lat, lon), datetime.now())
+    except Exception:
+        return "", "", ""
+
+
 def ai_nuisance(place: Place, mode: str, fallback: NuisanceScore) -> NuisanceScore:
     """Gemini 결과가 준비돼 있으면 그것으로, 아니면 규칙 기반 폴백."""
     from . import providers

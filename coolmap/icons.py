@@ -13,6 +13,7 @@ from PySide6.QtGui import (
     QPainterPath,
     QPen,
     QPixmap,
+    QTransform,
 )
 
 Drawer = Callable[[QPainter], None]
@@ -560,6 +561,112 @@ def _gov(p: QPainter) -> None:
     _stroke(p, _path((5.2, 20.6), (5.2, 8.4), (18.8, 8.4), (18.8, 20.6)))
     _stroke(p, _path((3.6, 8.4), (12, 3.4), (20.4, 8.4)))
     _stroke(p, _path((10, 20.6), (10, 14.4), (14, 14.4), (14, 20.6)))
+
+
+# --------------------------------------------------------------------------
+# 하늘 (plain.sky_line 의 아이콘 이름 앞에 "w_" 를 붙여 쓴다)
+# --------------------------------------------------------------------------
+def _circle(cx: float, cy: float, r: float) -> QPainterPath:
+    path = QPainterPath()
+    path.addEllipse(QPointF(cx, cy), r, r)
+    return path
+
+
+def _cloud(dx: float = 0.0, dy: float = 0.0, scale: float = 1.0) -> QPainterPath:
+    """바닥이 평평한 구름 윤곽 (원 셋 + 몸통을 합친 것)."""
+    body = QPainterPath()
+    body.addRect(QRectF(7.5, 12.5, 9.5, 6.0))
+    path = (_circle(7.5, 14.5, 4.0).united(_circle(12.5, 10.5, 5.2))
+            .united(_circle(17.0, 14.7, 3.8)).united(body))
+    t = QTransform()
+    t.translate(dx, dy)
+    t.scale(scale, scale)
+    return t.map(path.simplified())
+
+
+def _sun_rays(p: QPainter, cx: float, cy: float, r0: float, r1: float, angles) -> None:
+    for deg in angles:
+        a = math.radians(deg)
+        _stroke(p, _path((cx + math.cos(a) * r0, cy + math.sin(a) * r0),
+                         (cx + math.cos(a) * r1, cy + math.sin(a) * r1)))
+
+
+def _moon(cx: float, cy: float, r: float) -> QPainterPath:
+    return _circle(cx, cy, r).subtracted(_circle(cx + r * 0.55, cy - r * 0.45, r * 0.85))
+
+
+@_reg("w_sunny")
+def _w_sunny(p: QPainter) -> None:
+    _stroke(p, _circle(12, 12, 4.2))
+    _sun_rays(p, 12, 12, 7.0, 9.6, range(0, 360, 45))
+
+
+@_reg("w_night")
+def _w_night(p: QPainter) -> None:
+    _stroke(p, _moon(11.5, 12.5, 8.0))
+
+
+@_reg("w_partly")
+def _w_partly(p: QPainter) -> None:
+    cloud = _cloud(4.2, 4.6, 0.82)
+    _stroke(p, _circle(8.6, 8.6, 3.4).subtracted(cloud))
+    _sun_rays(p, 8.6, 8.6, 5.4, 7.4, (135, 180, 225, 270, 315))
+    _stroke(p, cloud)
+
+
+@_reg("w_partly_night")
+def _w_partly_night(p: QPainter) -> None:
+    cloud = _cloud(4.2, 4.6, 0.82)
+    _stroke(p, _moon(8.4, 8.4, 5.2).subtracted(cloud))
+    _stroke(p, cloud)
+
+
+@_reg("w_cloudy")
+def _w_cloudy(p: QPainter) -> None:
+    _stroke(p, _cloud(-0.2, 0.2))
+
+
+def _sky_cloud(p: QPainter) -> None:
+    """비·눈 아이콘의 위쪽 구름."""
+    _stroke(p, _cloud(1.0, -3.4, 0.92))
+
+
+@_reg("w_rain")
+def _w_rain(p: QPainter) -> None:
+    _sky_cloud(p)
+    for x in (8.6, 12.6, 16.6):
+        _stroke(p, _path((x, 16.6), (x - 1.6, 21.0)))
+
+
+@_reg("w_snow")
+def _w_snow(p: QPainter) -> None:
+    _sky_cloud(p)
+    for x, y in ((8.2, 18.0), (12.4, 20.4), (16.6, 18.0)):
+        _fill(p, _circle(x, y, 1.15))
+
+
+@_reg("w_sleet")
+def _w_sleet(p: QPainter) -> None:
+    _sky_cloud(p)
+    _stroke(p, _path((9.0, 16.6), (7.4, 21.0)))
+    _fill(p, _circle(12.6, 19.2, 1.15))
+    _stroke(p, _path((17.0, 16.6), (15.4, 21.0)))
+
+
+@_reg("umbrella")
+def _umbrella(p: QPainter) -> None:
+    top = QPainterPath(QPointF(3.2, 12))
+    top.cubicTo(3.6, 6.8, 7.6, 3.6, 12, 3.6)
+    top.cubicTo(16.4, 3.6, 20.4, 6.8, 20.8, 12)
+    top.cubicTo(19.4, 10.8, 17.4, 10.8, 16.4, 12)
+    top.cubicTo(15.2, 10.8, 13.2, 10.8, 12, 12)
+    top.cubicTo(10.8, 10.8, 8.8, 10.8, 7.6, 12)
+    top.cubicTo(6.6, 10.8, 4.6, 10.8, 3.2, 12)
+    _stroke(p, top)
+    handle = QPainterPath(QPointF(12, 12))
+    handle.lineTo(12, 18.6)
+    handle.arcTo(QRectF(8.4, 16.8, 3.6, 3.6), 0, -180)
+    _stroke(p, handle)
 
 
 # --------------------------------------------------------------------------

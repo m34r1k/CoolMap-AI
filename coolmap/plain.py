@@ -173,3 +173,59 @@ def report_line(r: dict) -> str:
     what = next((past for kind, _, past in REPORT_KINDS if kind == r.get("kind")), "문제가 있었어요")
     count = int(r.get("count") or 1)
     return f"{ago_word(str(r.get('at', '')))} 이용자 제보: {what}" + (f" ({count}건)" if count > 1 else "")
+
+
+# -- 하늘 (비 · 눈 · 맑음) -------------------------------------------------------
+# 실황 PTY: 0 없음 · 1 비 · 2 비/눈 · 3 눈 · 5 빗방울 · 6 빗방울눈날림 · 7 눈날림
+# 예보 PTY: 0 없음 · 1 비 · 2 비/눈 · 3 눈 · 4 소나기,  예보 SKY: 1 맑음 · 3 구름많음 · 4 흐림
+_NOW_WET = {1: "rain", 2: "sleet", 3: "snow", 5: "rain", 6: "sleet", 7: "snow"}
+_FCST_WET = {1: "rain", 2: "sleet", 3: "snow", 4: "rain"}
+_WET_WORD = {"rain": "비", "sleet": "비와 눈", "snow": "눈"}
+
+
+def sky_line(obs: dict | None, sky: list[dict], now) -> tuple[str, str, str]:
+    """(아이콘, '비가 와요', '오후 5시쯤 그칠 것 같아요') — 모르면 빈 글자.
+
+    아이콘: sunny · night · partly · partly_night · cloudy · rain · sleet · snow.
+    지금 비·눈은 실황(관측)으로, 맑음·흐림과 앞으로 올 비는 예보로 판단한다.
+    """
+    key = now.strftime("%Y%m%d%H")
+    hours = [h for h in sky if str(h.get("at", "")) >= key]
+    cur = hours[0] if hours and hours[0].get("at") == key else None
+    ahead = hours[1:7] if cur else hours[:6]
+    night = now.hour >= 19 or now.hour < 6
+
+    wet = None
+    try:
+        if obs and "PTY" in obs:
+            wet = _NOW_WET.get(int(float(obs["PTY"])))
+        elif cur:
+            wet = _FCST_WET.get(int(cur.get("pty", 0)))
+    except (TypeError, ValueError):
+        wet = None
+
+    if wet:
+        heavy = False
+        try:
+            heavy = wet == "rain" and float(str((obs or {}).get("RN1", 0)).replace("mm", "")) >= 3
+        except ValueError:
+            pass
+        text = "비가 많이 와요" if heavy else f"{_WET_WORD[wet]}{'가' if wet == 'rain' else '이'} 와요"
+        stop = next((h for h in ahead if not _FCST_WET.get(int(h.get("pty", 0)))), None)
+        hint = "우산 챙기세요"
+        if stop:
+            hint += f" · {hour_word(int(str(stop['at'])[8:10]))}쯤 그칠 것 같아요"
+        return wet, text, hint
+
+    code = int(cur.get("sky", 0)) if cur else 0
+    icon, text = {
+        1: ("night" if night else "sunny", "맑아요"),
+        3: ("partly_night" if night else "partly", "구름이 많아요"),
+        4: ("cloudy", "흐려요"),
+    }.get(code, ("", ""))
+    coming = next((h for h in ahead if _FCST_WET.get(int(h.get("pty", 0)))), None)
+    hint = ""
+    if coming:
+        kind = _FCST_WET[int(coming["pty"])]
+        hint = f"{hour_word(int(str(coming['at'])[8:10]))}쯤 {_WET_WORD[kind]} 소식 · 우산 챙기세요"
+    return icon, text, hint

@@ -2,6 +2,7 @@
 // coolmap/plain.py 와 같은 문장을 쓴다 — 한쪽을 고치면 다른 쪽도 고친다.
 
 import { type Analysis, analysisDistance, type Now, stayLabel } from "./analysis";
+import type { SkyHour } from "./backend";
 import { closingIn } from "./places";
 import type { Mode } from "./theme";
 
@@ -121,4 +122,49 @@ export function reportLine(r: { kind: string; at: string; count: number }): stri
   if (r.kind === "ok") return `${agoWord(r.at)} 이용자 확인: 지금은 괜찮아요`;
   const what = REPORT_KINDS.find((k) => k.kind === r.kind)?.past ?? "문제가 있었어요";
   return `${agoWord(r.at)} 이용자 제보: ${what}${r.count > 1 ? ` (${r.count}건)` : ""}`;
+}
+
+// -- 하늘 (비 · 눈 · 맑음) — coolmap/plain.py sky_line ----------------------------
+// 실황 PTY: 0 없음 · 1 비 · 2 비/눈 · 3 눈 · 5 빗방울 · 6 빗방울눈날림 · 7 눈날림
+// 예보 PTY: 0 없음 · 1 비 · 2 비/눈 · 3 눈 · 4 소나기,  예보 SKY: 1 맑음 · 3 구름많음 · 4 흐림
+export type SkyIcon = "sunny" | "night" | "partly" | "partly_night" | "cloudy" | "rain" | "sleet" | "snow" | "";
+type Wet = "rain" | "sleet" | "snow";
+const NOW_WET: Record<number, Wet> = { 1: "rain", 2: "sleet", 3: "snow", 5: "rain", 6: "sleet", 7: "snow" };
+const FCST_WET: Record<number, Wet> = { 1: "rain", 2: "sleet", 3: "snow", 4: "rain" };
+const WET_WORD: Record<Wet, string> = { rain: "비", sleet: "비와 눈", snow: "눈" };
+
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
+/** 아이콘 · '비가 와요' · '오후 5시쯤 그칠 것 같아요'. 모르면 빈 글자. */
+export function skyLine(
+  obs: Record<string, string> | null | undefined,
+  sky: SkyHour[] | null | undefined,
+  d = new Date(),
+): { icon: SkyIcon; text: string; hint: string } {
+  const key = `${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}${pad2(d.getHours())}`;
+  const hours = (sky ?? []).filter((h) => String(h.at) >= key);
+  const cur = hours[0]?.at === key ? hours[0] : undefined;
+  const ahead = cur ? hours.slice(1, 7) : hours.slice(0, 6);
+  const night = d.getHours() >= 19 || d.getHours() < 6;
+  const at = (h: SkyHour) => hourWord(Number(String(h.at).slice(8, 10)));
+
+  const wet: Wet | undefined =
+    obs && obs.PTY !== undefined ? NOW_WET[Math.trunc(Number(obs.PTY))] : cur ? FCST_WET[cur.pty] : undefined;
+  if (wet) {
+    const heavy = wet === "rain" && Number(String(obs?.RN1 ?? 0).replace("mm", "")) >= 3;
+    const text = heavy ? "비가 많이 와요" : `${WET_WORD[wet]}${wet === "rain" ? "가" : "이"} 와요`;
+    const stop = ahead.find((h) => !FCST_WET[h.pty]);
+    return { icon: wet, text, hint: "우산 챙기세요" + (stop ? ` · ${at(stop)}쯤 그칠 것 같아요` : "") };
+  }
+
+  const [icon, text]: [SkyIcon, string] =
+    cur?.sky === 1
+      ? [night ? "night" : "sunny", "맑아요"]
+      : cur?.sky === 3
+        ? [night ? "partly_night" : "partly", "구름이 많아요"]
+        : cur?.sky === 4
+          ? ["cloudy", "흐려요"]
+          : ["", ""];
+  const coming = ahead.find((h) => FCST_WET[h.pty]);
+  return { icon, text, hint: coming ? `${at(coming)}쯤 ${WET_WORD[FCST_WET[coming.pty]]} 소식 · 우산 챙기세요` : "" };
 }

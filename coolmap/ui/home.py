@@ -18,12 +18,12 @@ from PySide6.QtWidgets import (
 )
 
 from .. import icons, providers
-from ..ai import analyze, live_weather
+from ..ai import analyze, live_sky, live_weather
 from ..catalog import find_by_id
 from ..config import AppState
 from ..models import COOLING, HEATING
 from ..plain import MODE_TITLE, SHELTER_WORD, nearby, nearest_first
-from ..theme import Palette
+from ..theme import Palette, rain_color
 from .common import Card, IconLabel, set_prop, ui_font
 from .placecard import PlaceRow, TopCard
 
@@ -32,19 +32,28 @@ CONTENT_WIDTH = 860
 
 
 class WeatherCard(Card):
+    """바깥 기온 · 하늘(비·눈·맑음) · 특보. 비 소식이 있으면 아래에 우산 줄을 붙인다."""
+
     def __init__(self, parent: QWidget | None = None):
-        super().__init__(parent, padding=20, spacing=0)
+        super().__init__(parent, padding=20, spacing=12)
         row = QHBoxLayout()
         row.setSpacing(16)
-        self.icon = IconLabel("snow", 44, "#22D3EE", 2.0)
+        self.icon = IconLabel("w_sunny", 48, "#F59E0B", 2.0)
         box = QVBoxLayout()
         box.setSpacing(0)
-        self.caption = QLabel("지금 바깥 기온")
+        self.caption = QLabel("지금 바깥")
         self.caption.setFont(ui_font(15))
+        temp_row = QHBoxLayout()
+        temp_row.setSpacing(14)
         self.temp = QLabel("--")
         self.temp.setFont(ui_font(38, QFont.ExtraBold))
+        self.sky = QLabel("")
+        self.sky.setFont(ui_font(21, QFont.ExtraBold))
+        temp_row.addWidget(self.temp, 0, Qt.AlignBaseline)
+        temp_row.addWidget(self.sky, 0, Qt.AlignBaseline)
+        temp_row.addStretch(1)
         box.addWidget(self.caption)
-        box.addWidget(self.temp)
+        box.addLayout(temp_row)
         self.alert = QLabel("")
         self.alert.setFont(ui_font(16, QFont.ExtraBold))
         row.addWidget(self.icon, 0, Qt.AlignVCenter)
@@ -52,15 +61,48 @@ class WeatherCard(Card):
         row.addWidget(self.alert, 0, Qt.AlignVCenter)
         self.body().addLayout(row)
 
-    def set_weather(self, w, mode: str, p: Palette) -> None:
+        self.hint_box = QWidget()
+        self.hint_box.setObjectName("skyHint")
+        hint = QHBoxLayout(self.hint_box)
+        hint.setContentsMargins(14, 10, 14, 10)
+        hint.setSpacing(10)
+        self.hint_icon = IconLabel("umbrella", 24, "#22D3EE", 2.0)
+        self.hint = QLabel("")
+        self.hint.setFont(ui_font(16, QFont.Bold))
+        self.hint.setWordWrap(True)
+        hint.addWidget(self.hint_icon, 0, Qt.AlignVCenter)
+        hint.addWidget(self.hint, 1)
+        self.body().addWidget(self.hint_box)
+        self.hint_box.hide()
+
+    def set_weather(self, w, mode: str, p: Palette, sky: tuple[str, str, str] = ("", "", "")) -> None:
+        key = (w.outdoor, w.alert, mode, p, sky)
+        if key == getattr(self, "_shown", None):    # 같은 내용이면 스타일을 다시 입히지 않는다
+            return
+        self._shown = key
         hot = mode == COOLING
-        self.icon.set_icon("snow" if not hot else "flame")
-        self.icon.set_color(p.bad if hot else p.accent_bright)
+        icon, text, hint = sky
+        wet = icon in ("rain", "sleet", "snow")
+        rain = rain_color(p.dark)
+        if icon:
+            self.icon.set_icon(f"w_{icon}")
+            self.icon.set_color(rain if wet else p.warn if icon == "sunny" else p.text_dim)
+        else:                                   # 하늘을 모르면 예전처럼 모드 아이콘
+            self.icon.set_icon("flame" if hot else "snow")
+            self.icon.set_color(p.bad if hot else p.accent_bright)
         self.caption.setStyleSheet(f"color: {p.text_dim};")
         self.temp.setText(f"{w.outdoor:.0f}°C")
+        self.sky.setText(text)
+        self.sky.setVisible(bool(text))
+        self.sky.setStyleSheet(f"color: {rain if wet else p.text};")
         self.alert.setVisible(bool(w.alert))
         self.alert.setText(f"  {w.alert}  ")
         self.alert.setStyleSheet(f"background: {p.warn}; color: {p.bg}; border-radius: 10px; padding: 6px 4px;")
+        self.hint_box.setVisible(bool(hint))
+        self.hint.setText(hint)
+        self.hint_icon.set_color(rain)
+        self.hint_box.setStyleSheet(
+            f"#skyHint {{ background: {p.card_alt}; border-radius: 14px; }} QLabel {{ color: {p.text}; background: transparent; }}")
 
 
 class ModeSwitch(QWidget):
@@ -187,7 +229,8 @@ class HomeView(QWidget):
         p = state.palette
         hour, minute, weekday = state.now()
 
-        self.weather.set_weather(live_weather(state.mode, hour, minute, state.origin), state.mode, p)
+        self.weather.set_weather(live_weather(state.mode, hour, minute, state.origin), state.mode, p,
+                                 live_sky(state.origin))
         self.modes.refresh()
 
         items = nearest_first(nearby(state))

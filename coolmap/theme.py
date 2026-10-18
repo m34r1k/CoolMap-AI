@@ -208,6 +208,11 @@ PALETTES = {COOLING: COOLING_PALETTE, HEATING: HEATING_PALETTE}
 LIGHT_PALETTES = {COOLING: LIGHT_COOLING_PALETTE, HEATING: LIGHT_HEATING_PALETTE}
 
 
+def rain_color(dark: bool) -> str:
+    """비·눈 색 — 추위 피하기(주황) 모드에서도 비는 파랗게 보이도록 모드와 상관없이 고정."""
+    return "#60A5FA" if dark else "#2563EB"
+
+
 def palette_for(mode: str, dark: bool = False) -> Palette:
     table = PALETTES if dark else LIGHT_PALETTES
     return table.get(mode, table[COOLING])

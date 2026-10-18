@@ -10,9 +10,9 @@ import type { Analysis } from "../../analysis";
 import { PlaceRow, TopCard } from "../../components/PlaceCard";
 import { BigButton, Icon, Logo, T } from "../../components/ui";
 import { UpdateBanner } from "../../components/UpdateBanner";
-import { MODE_TITLE, nearestFirst, SHELTER_WORD } from "../../plain";
+import { MODE_TITLE, nearestFirst, SHELTER_WORD, type SkyIcon } from "../../plain";
 import { useStore } from "../../store";
-import { type Mode, paletteFor } from "../../theme";
+import { type Mode, paletteFor, rainColor } from "../../theme";
 
 const open = (a: Analysis) => router.push({ pathname: "/place/[id]", params: { id: a.place.id } });
 
@@ -109,25 +109,57 @@ export default function Home() {
   );
 }
 
-/** 바깥 기온 · 특보 */
+/** 하늘 아이콘 → 머티리얼 아이콘 이름 */
+const SKY_ICON: Record<Exclude<SkyIcon, "">, string> = {
+  sunny: "weather-sunny",
+  night: "weather-night",
+  partly: "weather-partly-cloudy",
+  partly_night: "weather-night-partly-cloudy",
+  cloudy: "weather-cloudy",
+  rain: "weather-rainy",
+  sleet: "weather-snowy-rainy",
+  snow: "weather-snowy",
+};
+
+/** 바깥 기온 · 하늘(비·눈·맑음) · 특보 */
 function Weather() {
-  const { p, weather: w, mode } = useStore();
+  const { p, weather: w, mode, sky } = useStore();
   const hot = mode === "cooling";
+  const wet = sky.icon === "rain" || sky.icon === "sleet" || sky.icon === "snow";
+  const rain = rainColor(p.dark);
+  const iconColor = wet ? rain : sky.icon === "sunny" ? p.warn : sky.icon ? p.textDim : hot ? p.bad : p.accentBright;
   return (
     <View style={[styles.weather, { backgroundColor: p.card, borderColor: p.border }]}>
-      <Icon name={hot ? "white-balance-sunny" : "snowflake"} size={40} color={hot ? p.bad : p.accentBright} />
-      <View style={{ flex: 1 }}>
-        <T size={15} color={p.textDim}>
-          지금 바깥 기온
-        </T>
-        <T size={34} weight="800" color={p.text}>
-          {w.live ? `${w.outdoor.toFixed(0)}°C` : "확인 중"}
-        </T>
+      <View style={styles.weatherRow}>
+        <Icon name={sky.icon ? SKY_ICON[sky.icon] : hot ? "white-balance-sunny" : "snowflake"} size={44} color={iconColor} />
+        <View style={{ flex: 1 }}>
+          <T size={15} color={p.textDim}>
+            지금 바깥
+          </T>
+          <View style={styles.tempRow}>
+            <T size={34} weight="800" color={p.text}>
+              {w.live ? `${w.outdoor.toFixed(0)}°C` : "확인 중"}
+            </T>
+            {!!sky.text && (
+              <T size={20} weight="800" color={wet ? rain : p.text}>
+                {sky.text}
+              </T>
+            )}
+          </View>
+        </View>
+        {w.live && !!w.alert && (
+          <View style={[styles.alert, { backgroundColor: p.warn }]}>
+            <T size={15} weight="800" color={p.bg}>
+              {w.alert}
+            </T>
+          </View>
+        )}
       </View>
-      {w.live && !!w.alert && (
-        <View style={[styles.alert, { backgroundColor: p.warn }]}>
-          <T size={15} weight="800" color={p.bg}>
-            {w.alert}
+      {!!sky.hint && (
+        <View style={[styles.hint, { backgroundColor: p.cardAlt }]}>
+          <Icon name="umbrella-outline" size={22} color={rain} />
+          <T size={16} weight="700" color={p.text} style={{ flex: 1 }}>
+            {sky.hint}
           </T>
         </View>
       )}
@@ -166,14 +198,15 @@ const styles = StyleSheet.create({
   h2: { marginTop: 26, marginBottom: 12 },
   center: { alignItems: "center", gap: 10, paddingVertical: 24 },
   weather: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
+    gap: 12,
     borderRadius: 20,
     borderWidth: 1,
     padding: 16,
     marginTop: 16,
   },
+  weatherRow: { flexDirection: "row", alignItems: "center", gap: 14 },
+  tempRow: { flexDirection: "row", alignItems: "baseline", flexWrap: "wrap", columnGap: 12 },
+  hint: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 10 },
   alert: { borderRadius: 12, paddingHorizontal: 10, paddingVertical: 6 },
   modes: { flexDirection: "row", gap: 10, marginTop: 12 },
   mode: {

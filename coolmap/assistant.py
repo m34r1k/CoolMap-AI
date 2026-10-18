@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from .ai import Analysis, live_weather
+from .ai import Analysis, live_sky, live_weather
 from .models import COOLING, HEATING
 from .plain import (
     SHELTER_WORD,
@@ -42,7 +42,7 @@ def suggestions(mode: str) -> list[str]:
         "가장 시원한 곳은?" if mode == COOLING else "가장 따뜻한 곳은?",
         "오래 쉬어도 되는 곳은?",
         "밤늦게까지 여는 곳은?",
-        "지금 바깥 몇 도야?",
+        "지금 바깥 날씨 어때?",
     ]
 
 
@@ -100,11 +100,14 @@ def respond(state, query: str) -> ChatReply:
         return greeting(state)
 
     # 날씨만 묻는 질문 ('시원한 곳' 처럼 장소를 찾는 질문은 아래에서)
-    if has("날씨", "몇도", "기온", "바깥온도", "밖에온도", "덥나", "춥나") and not has("곳", "쉼터", "어디"):
+    ask_sky = has("비와", "비오", "비가", "비올", "우산", "눈와", "눈오", "눈이와", "눈올", "하늘", "맑")
+    if (ask_sky or has("날씨", "몇도", "기온", "바깥온도", "밖에온도", "덥나", "춥나")) and not has("곳", "쉼터", "어디"):
         w = live_weather(mode, hour, minute, state.origin)
+        _, sky, hint = live_sky(state.origin)
         alert = f" <b>{w.alert}</b>가 내려져 있어요." if w.alert else ""
-        tip = "물을 자주 마시고 그늘에서 쉬세요." if mode == COOLING else "따뜻하게 입고 실내에서 쉬세요."
-        return ChatReply(f"지금 바깥은 <b>{w.outdoor:.0f}°C</b>예요.{alert}\n{tip}")
+        sky_text = f" <b>{sky}</b>." if sky else (" 하늘 상태는 아직 받아오지 못했어요." if ask_sky else "")
+        tip = hint or ("물을 자주 마시고 그늘에서 쉬세요." if mode == COOLING else "따뜻하게 입고 실내에서 쉬세요.")
+        return ChatReply(f"지금 바깥은 <b>{w.outdoor:.0f}°C</b>예요.{sky_text}{alert}\n{tip}")
 
     analyses = nearby(state)
     if not analyses:
@@ -217,6 +220,8 @@ def greeting(state) -> ChatReply:
     hour, minute, _ = state.now()
     w = live_weather(state.mode, hour, minute, state.origin)
     alert = f" ({w.alert})" if w.alert else ""
+    _, sky, _ = live_sky(state.origin)
+    sky = f" {sky}." if sky else ""
     return ChatReply(
-        f"안녕하세요! 지금 바깥은 <b>{w.outdoor:.0f}°C</b>예요{alert}.\n"
+        f"안녕하세요! 지금 바깥은 <b>{w.outdoor:.0f}°C</b>예요{alert}.{sky}\n"
         f"{SHELTER_WORD[state.mode]}에 대해 궁금한 걸 물어보세요.\n아래 질문을 눌러도 돼요.")

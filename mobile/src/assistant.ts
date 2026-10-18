@@ -18,7 +18,7 @@ export function suggestions(mode: Mode): string[] {
     mode === "cooling" ? "가장 시원한 곳은?" : "가장 따뜻한 곳은?",
     "오래 쉬어도 되는 곳은?",
     "밤늦게까지 여는 곳은?",
-    "지금 바깥 몇 도야?",
+    "지금 바깥 날씨 어때?",
   ];
 }
 
@@ -54,21 +54,26 @@ const named = (name: string) => `<b>${name}</b>${eyo(name).slice(name.length)}`;
 const byOpenThen = (list: Analysis[], key: (a: Analysis) => number) =>
   [...list].sort((x, y) => Number(y.openNow) - Number(x.openNow) || key(x) - key(y));
 
-export function respond(query: string, analyses: Analysis[], mode: Mode, now: Now, weather: Weather): ChatReply {
+/** 하늘 한 줄 (plain.ts skyLine) */
+type Sky = { text: string; hint: string };
+
+export function respond(query: string, analyses: Analysis[], mode: Mode, now: Now, weather: Weather, sky?: Sky): ChatReply {
   const q = query.replace(/\s+/g, "").toLowerCase();
   const has = (...words: string[]) => words.some((w) => q.includes(w));
 
   if (has("고마", "감사", "땡큐")) {
     return { text: `천만에요. ${mode === "cooling" ? "더위" : "추위"} 조심하세요!`, places: [] };
   }
-  if (has("안녕", "하이") && q.length <= 8) return greeting(mode, weather);
+  if (has("안녕", "하이") && q.length <= 8) return greeting(mode, weather, sky);
 
   // 날씨만 묻는 질문 ('시원한 곳' 처럼 장소를 찾는 질문은 아래에서)
-  if (has("날씨", "몇도", "기온", "바깥온도", "밖에온도", "덥나", "춥나") && !has("곳", "쉼터", "어디")) {
-    if (!weather.live) return { text: "지금 기온을 받아오지 못했어요. 잠시 뒤에 다시 물어봐 주세요.", places: [] };
+  const askSky = has("비와", "비오", "비가", "비올", "우산", "눈와", "눈오", "눈이와", "눈올", "하늘", "맑");
+  if ((askSky || has("날씨", "몇도", "기온", "바깥온도", "밖에온도", "덥나", "춥나")) && !has("곳", "쉼터", "어디")) {
+    if (!weather.live) return { text: "지금 날씨를 받아오지 못했어요. 잠시 뒤에 다시 물어봐 주세요.", places: [] };
     const alert = weather.alert ? ` <b>${weather.alert}</b>가 내려져 있어요.` : "";
-    const tip = mode === "cooling" ? "물을 자주 마시고 그늘에서 쉬세요." : "따뜻하게 입고 실내에서 쉬세요.";
-    return { text: `지금 바깥은 <b>${weather.outdoor.toFixed(0)}°C</b>예요.${alert}\n${tip}`, places: [] };
+    const skyText = sky?.text ? ` <b>${sky.text}</b>.` : askSky ? " 하늘 상태는 아직 받아오지 못했어요." : "";
+    const tip = sky?.hint || (mode === "cooling" ? "물을 자주 마시고 그늘에서 쉬세요." : "따뜻하게 입고 실내에서 쉬세요.");
+    return { text: `지금 바깥은 <b>${weather.outdoor.toFixed(0)}°C</b>예요.${skyText}${alert}\n${tip}`, places: [] };
   }
 
   if (!analyses.length) {
@@ -197,9 +202,9 @@ export function respond(query: string, analyses: Analysis[], mode: Mode, now: No
   return { text: lines.join("\n"), places: ordered.slice(0, 3) };
 }
 
-export function greeting(mode: Mode, weather: Weather): ChatReply {
+export function greeting(mode: Mode, weather: Weather, sky?: Sky): ChatReply {
   const outdoor = weather.live
-    ? `지금 바깥은 <b>${weather.outdoor.toFixed(0)}°C</b>예요${weather.alert ? ` (${weather.alert})` : ""}.\n`
+    ? `지금 바깥은 <b>${weather.outdoor.toFixed(0)}°C</b>예요${weather.alert ? ` (${weather.alert})` : ""}.${sky?.text ? ` ${sky.text}.` : ""}\n`
     : "";
   return {
     text: `안녕하세요! ${outdoor}${SHELTER_WORD[mode]}에 대해 궁금한 걸 물어보세요.\n아래 질문을 눌러도 돼요.`,

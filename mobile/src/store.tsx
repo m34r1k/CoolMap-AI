@@ -22,11 +22,13 @@ import {
   type ReportKind,
   reportShelter,
   sheltersNear,
+  type SkyHour,
   weather as fetchWeather,
 } from "./backend";
 import { mergeCandidates, nearbyCandidates } from "./candidates";
 import { haversine, walkMinutes } from "./geo";
 import { onNuisance } from "./nuisance";
+import { type SkyIcon, skyLine } from "./plain";
 import { type Place, shelterToPlace } from "./places";
 import { load, save } from "./storage";
 import { defaultMode, type Mode, type Palette, paletteFor } from "./theme";
@@ -97,6 +99,8 @@ type Store = {
   setSearchCenter: (c: LngLat) => void;
 
   weather: Weather;
+  /** 하늘 — 아이콘 · '비가 와요' · '오후 5시쯤 그칠 것 같아요' (모르면 빈 글자) */
+  sky: { icon: SkyIcon; text: string; hint: string };
   loading: boolean;
   aiLoading: boolean;
   error: string;
@@ -141,6 +145,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [searchCenter, setSearchCenter] = useState<LngLat>(FALLBACK);
 
   const [obs, setObs] = useState<Record<string, string> | null>(null);
+  const [skyHours, setSkyHours] = useState<SkyHour[] | null>(null);
   const [officialRes, setOfficialRes] = useState<Loaded<Place[]>>({ key: "", value: [] });
   const [guessRes, setGuessRes] = useState<Loaded<Place[]>>({ key: "", value: [] });
   // 한 번이라도 목록에 실렸던 장소 — 상세 화면은 id 로만 찾으므로, 목록이 바뀐 뒤에도 열 수 있게 둔다
@@ -259,7 +264,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     const get = () =>
       fetchWeather(origin[1], origin[0])
-        .then((w) => !cancelled && setObs(w.now))
+        .then((w) => {
+          if (cancelled) return;
+          setObs(w.now);
+          setSkyHours(w.sky ?? null);
+        })
         .catch(() => {});
     get();
     const t = setInterval(get, 10 * 60_000);
@@ -334,6 +343,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const officialCount = places.filter((x) => x.official).length;
 
   const weather = useMemo(() => weatherFromObs(obs, mode, now), [obs, mode, now]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- now 가 바뀔 때(매분) 지금 시각으로 다시 고른다
+  const sky = useMemo(() => skyLine(obs, skyHours), [obs, skyHours, now]);
   const here: LngLat = me?.coord ?? origin;
 
   const analyzePlace = useCallback(
@@ -465,6 +476,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     searchCenter,
     setSearchCenter,
     weather,
+    sky,
     loading,
     aiLoading,
     error,

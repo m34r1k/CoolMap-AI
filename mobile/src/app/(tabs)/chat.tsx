@@ -31,7 +31,7 @@ export default function Chat() {
 
   // 모드가 바뀌면 인사부터 다시
   useEffect(() => {
-    const g = greeting(mode, s.weather);
+    const g = greeting(mode, s.weather, s.sky);
     setMessages([{ id: nextId.current++, from: "ai", text: g.text, reply: g }]);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 날씨가 갱신될 때마다 대화를 지우지 않는다
   }, [mode]);
@@ -39,7 +39,7 @@ export default function Chat() {
   const ask = (q: string) => {
     const text = q.trim();
     if (!text) return;
-    const reply = respond(text, s.analyses, mode, s.now, s.weather);
+    const reply = respond(text, s.analyses, mode, s.now, s.weather, s.sky);
     const userId = nextId.current++;
     askedId.current = userId;
     setMessages((m) => [

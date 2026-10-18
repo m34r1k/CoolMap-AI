@@ -1,7 +1,7 @@
 """기상청 단기예보 조회서비스 연동.
 
 - 초단기실황(getUltraSrtNcst) : 현재 기온·습도·풍속
-- 단기예보(getVilageFcst)     : 시간대별 기온 예보 (혼잡도 대신 '언제 더운지' 표시에 사용)
+- 단기예보(getVilageFcst)     : 시간대별 기온 예보 · 하늘(SKY · PTY · POP) — '비 소식' 안내에 사용
 
 사용자가 키를 넣지 않았으면 CoolMap 서버(supabase/functions/weather)를 거쳐 받는다.
 서버는 격자 단위로 캐시하므로 같은 동네 사용자는 기상청 호출을 나눠 쓴다.
@@ -81,6 +81,8 @@ class WeatherProvider(QObject):
         self._lock = threading.Lock()
         self._now: dict[tuple, tuple[float, dict]] = {}      # grid -> (ts, values)
         self._fcst: dict[tuple, tuple[float, dict]] = {}     # grid -> (ts, {hour: temp})
+        self._sky: dict[tuple, list[dict]] = {}               # grid -> [{at, sky, pty, pop}] (시각 순)
+        self._sky_asked: set[tuple] = set()
         self._pending: set[tuple] = set()
         self._pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="kma")
         self._last_error = ""
@@ -98,6 +100,8 @@ class WeatherProvider(QObject):
                 self._fcst[tuple(json.loads(k))] = (
                     v["ts"], {int(h): t for h, t in v["val"].items()}
                 )
+            for k, v in raw.get("sky", {}).items():
+                self._sky[tuple(json.loads(k))] = list(v)
         except (OSError, ValueError, KeyError, TypeError):
             pass
 
@@ -108,6 +112,7 @@ class WeatherProvider(QObject):
                         for k, (ts, val) in self._now.items()},
                 "fcst": {json.dumps(list(k)): {"ts": ts, "val": val}
                          for k, (ts, val) in self._fcst.items()},
+                "sky": {json.dumps(list(k)): v for k, v in self._sky.items()},
             }
             self._cache_file.write_text(json.dumps(data), encoding="utf-8")
         except OSError:
@@ -148,8 +153,11 @@ class WeatherProvider(QObject):
         grid = latlon_to_kma_grid(lat, lon)
         with self._lock:
             hit = self._now.get(grid)
-            if hit and time.time() - hit[0] < CACHE_TTL:
+            # 하늘 예보가 아직 없으면(이전 버전 캐시) 한 번은 바로 받아 본다
+            fresh = hit and time.time() - hit[0] < CACHE_TTL
+            if fresh and (grid in self._sky or grid in self._sky_asked):
                 return hit[1]
+            self._sky_asked.add(grid)
             if grid in self._pending:
                 return hit[1] if hit else None
             self._pending.add(grid)
@@ -164,6 +172,12 @@ class WeatherProvider(QObject):
         with self._lock:
             hit = self._fcst.get(grid)
         return dict(hit[1]) if hit else {}
+
+    def sky(self, lat: float, lon: float) -> list[dict]:
+        """시간별 하늘 예보 [{at: 'YYYYMMDDHH', sky, pty, pop}] (지난 시각 포함, 시각 순)."""
+        grid = latlon_to_kma_grid(lat, lon)
+        with self._lock:
+            return list(self._sky.get(grid, []))
 
     def _fetch(self, grid: tuple[int, int]) -> None:
         if self.use_backend:
@@ -188,22 +202,30 @@ class WeatherProvider(QObject):
             # 예보
             with self._lock:
                 stale = self._fcst.get(grid)
-            if not stale or time.time() - stale[0] > FCST_TTL:
+                no_sky = grid not in self._sky
+            if not stale or no_sky or time.time() - stale[0] > FCST_TTL:
                 bd, bt = _fcst_base(now)
                 fc = _items(_http_json("getVilageFcst", {
                     "base_date": bd, "base_time": bt,
                     "nx": nx, "ny": ny, "pageNo": 1, "numOfRows": 300,
                 }))
                 temps: dict[int, float] = {}
+                sky: dict[str, dict] = {}
                 for i in fc:
-                    if i.get("category") == "TMP":
-                        try:
+                    cat = i.get("category")
+                    try:
+                        if cat == "TMP":
                             temps[int(i["fcstTime"][:2])] = float(i["fcstValue"])
-                        except (ValueError, KeyError):
-                            pass
+                        elif cat in ("SKY", "PTY", "POP"):
+                            at = f"{i['fcstDate']}{i['fcstTime'][:2]}"
+                            h = sky.setdefault(at, {"at": at, "sky": 0, "pty": 0, "pop": 0})
+                            h[cat.lower()] = int(float(i["fcstValue"]))
+                    except (ValueError, KeyError):
+                        pass
                 if temps:
                     with self._lock:
                         self._fcst[grid] = (time.time(), temps)
+                        self._sky[grid] = [sky[k] for k in sorted(sky)]
             self._save_cache()
         except Exception as e:            # 네트워크/파싱 실패 → 폴백 유지
             self._last_error = f"{type(e).__name__}: {e}"
@@ -227,6 +249,9 @@ class WeatherProvider(QObject):
                 temps = {int(h): float(t) for h, t in d["fcst"].items()}
                 with self._lock:
                     self._fcst[grid] = (now_ts - float(d.get("fcst_age") or 0), temps)
+            if isinstance(d.get("sky"), list):
+                with self._lock:
+                    self._sky[grid] = d["sky"]
             self._last_error = d.get("error") or d.get("note") or ""
             self._save_cache()
         except Exception as e:            # 네트워크/파싱 실패 → 폴백 유지
