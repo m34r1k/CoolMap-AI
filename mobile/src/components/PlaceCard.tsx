@@ -10,7 +10,7 @@ import { categoryIcon, categoryLabel } from "../places";
 import { openLine, stayLine, tags, tempLine, walkLine } from "../plain";
 import { useStore } from "../store";
 import type { Palette } from "../theme";
-import { ReportNotice, SirenButton } from "./Report";
+import { ReportNotice } from "./Report";
 import { BigButton, Icon, InfoLine, T, Tag } from "./ui";
 
 export function TopCard({
@@ -41,7 +41,6 @@ export function TopCard({
               {categoryLabel(a.place)}
             </T>
           </View>
-          <SirenButton placeId={a.place.id} placeName={a.place.name} p={p} />
           {onClose && (
             <Pressable onPress={onClose} hitSlop={14} accessibilityLabel="닫기">
               <Icon name="close" size={26} color={p.textMute} />

@@ -45,19 +45,22 @@ export default function Detail() {
       style={{ backgroundColor: p.bg }}
       contentContainerStyle={[styles.page, { paddingTop: insets.top + 8, paddingBottom: insets.bottom + 32 }]}
     >
-      <Pressable onPress={() => router.back()} hitSlop={10} style={styles.back}>
-        <Icon name="arrow-left" size={26} color={p.text} />
-        <T size={17} weight="700" color={p.text}>
-          뒤로
-        </T>
-      </Pressable>
+      {/* 위: 왼쪽 '뒤로', 오른쪽 구석 '문제 알리기' */}
+      <View style={styles.topBar}>
+        <Pressable onPress={() => router.back()} hitSlop={10} style={styles.back}>
+          <Icon name="arrow-left" size={26} color={p.text} />
+          <T size={17} weight="700" color={p.text}>
+            뒤로
+          </T>
+        </Pressable>
+        <SirenButton placeId={place.id} placeName={place.name} p={p} />
+      </View>
 
       <View style={styles.row}>
         <Icon name={categoryIcon(place)} size={22} color={p.accent} />
-        <T size={16} weight="700" color={p.accent} style={styles.fill}>
+        <T size={16} weight="700" color={p.accent}>
           {categoryLabel(place)}
         </T>
-        <SirenButton placeId={place.id} placeName={place.name} p={p} />
       </View>
       <T size={27} weight="800" color={p.text}>
         {place.name}
@@ -214,6 +217,7 @@ const styles = StyleSheet.create({
   fill: { flex: 1 },
   center: { alignItems: "center", justifyContent: "center", padding: 24 },
   page: { paddingHorizontal: 16, gap: 12 },
+  topBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   back: { flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start", paddingVertical: 8 },
   row: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 },
   tags: { flexDirection: "row", flexWrap: "wrap", gap: 6 },

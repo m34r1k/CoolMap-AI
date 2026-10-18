@@ -72,9 +72,12 @@ class DetailView(QWidget):
         self.back_btn.setCursor(Qt.PointingHandCursor)
         self.back_btn.setFont(ui_font(16, QFont.Bold))
         self.back_btn.clicked.connect(self.back.emit)
+        # 위: 왼쪽 '뒤로', 오른쪽 구석 '문제 알리기'
         row = QHBoxLayout()
         row.addWidget(self.back_btn)
         row.addStretch(1)
+        self.siren = SirenButton()
+        row.addWidget(self.siren)
         lay.addLayout(row)
 
         cat = QHBoxLayout()
@@ -84,8 +87,6 @@ class DetailView(QWidget):
         cat.addWidget(self.cat_icon)
         cat.addWidget(self.cat_label)
         cat.addStretch(1)
-        self.siren = SirenButton()
-        cat.addWidget(self.siren)
         lay.addLayout(cat)
 
         self.title = _label(28, QFont.ExtraBold)

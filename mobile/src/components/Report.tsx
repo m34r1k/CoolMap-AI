@@ -11,20 +11,20 @@ import { useStore } from "../store";
 import type { Palette } from "../theme";
 import { Icon, InfoLine, T } from "./ui";
 
-/** 사이렌 아이콘 + '알리기'. 누르면 제보 창이 뜬다. */
+/** 빨간 테두리의 '🚨 문제 알리기' 버튼. 상세 화면 오른쪽 위 구석에 둔다. 누르면 제보 창이 뜬다. */
 export function SirenButton({ placeId, placeName, p }: { placeId: string; placeName: string; p: Palette }) {
   const [open, setOpen] = useState(false);
   return (
     <>
       <Pressable
         onPress={() => setOpen(true)}
-        hitSlop={10}
+        hitSlop={8}
         accessibilityLabel="이 쉼터 문제 알리기"
-        style={({ pressed }) => [styles.siren, { opacity: pressed ? 0.6 : 1 }]}
+        style={({ pressed }) => [styles.siren, { borderColor: p.bad, backgroundColor: pressed ? p.cardAlt : p.card }]}
       >
-        <Icon name="alarm-light-outline" size={30} color={p.bad} />
-        <T size={12} weight="700" color={p.bad}>
-          알리기
+        <Icon name="alarm-light" size={24} color={p.bad} />
+        <T size={16} weight="800" color={p.bad}>
+          문제 알리기
         </T>
       </Pressable>
       {open && <ReportSheet placeId={placeId} placeName={placeName} p={p} onClose={() => setOpen(false)} />}
@@ -159,7 +159,15 @@ export function ReportNotice({ placeId, p }: { placeId: string; p: Palette }) {
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
-  siren: { alignItems: "center", justifyContent: "center", minWidth: 48 },
+  siren: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderWidth: 2,
+    borderRadius: 22,
+    paddingHorizontal: 14,
+    minHeight: 46,
+  },
   backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)" },
   sheet: { borderTopLeftRadius: 22, borderTopRightRadius: 22, borderWidth: 1, padding: 18, gap: 12 },
   head: { flexDirection: "row", alignItems: "center", gap: 10 },

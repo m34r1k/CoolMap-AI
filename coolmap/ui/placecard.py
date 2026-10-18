@@ -119,26 +119,28 @@ class ReportDialog(QDialog):
 
 
 class SirenButton(QToolButton):
-    """사이렌 아이콘 + '알리기'. 누르면 제보 창이 뜬다."""
+    """빨간 테두리의 '🚨 문제 알리기' 버튼. 상세 화면 오른쪽 위 구석에 둔다. 누르면 제보 창이 뜬다."""
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self._pid, self._name = "", ""
         self._state = None
-        self.setText("알리기")
-        self.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
-        self.setIconSize(icons.icon_size(28))
-        self.setFont(ui_font(12, QFont.Bold))
+        self.setText(" 문제 알리기")
+        self.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.setIconSize(icons.icon_size(22))
+        self.setFont(ui_font(16, QFont.ExtraBold))
+        self.setMinimumHeight(46)
         self.setCursor(Qt.PointingHandCursor)
         self.setToolTip("이 쉼터에 문제가 있으면 알려 주세요")
-        self.setAutoRaise(True)
         self.clicked.connect(self._open)
 
     def set_place(self, place_id: str, name: str, state) -> None:
         self._pid, self._name, self._state = place_id, name, state
         p = state.palette
-        self.setIcon(icons.qicon("siren", 28, p.bad))
-        set_style(self, f"QToolButton {{ color: {p.bad}; border: none; background: transparent; padding: 2px; }}")
+        self.setIcon(icons.qicon("siren", 22, p.bad))
+        set_style(self, f"QToolButton {{ color: {p.bad}; border: 2px solid {p.bad}; border-radius: 22px;"
+                        f" background: {p.card}; padding: 6px 16px; }}"
+                        f"QToolButton:hover {{ background: {p.card_alt}; }}")
 
     def _open(self) -> None:
         if self._pid and self._state is not None:
@@ -244,8 +246,6 @@ class TopCard(ClickableCard):
         names.addWidget(self.category)
         head.addWidget(self.cat_frame, 0, Qt.AlignTop)
         head.addLayout(names, 1)
-        self.siren = SirenButton()
-        head.addWidget(self.siren, 0, Qt.AlignTop)
         self.close_btn = IconButton("close", 36, 16, tooltip="닫기")
         self.close_btn.clicked.connect(self.closeRequested.emit)
         self.close_btn.setVisible(closable)
@@ -315,7 +315,6 @@ class TopCard(ClickableCard):
             self.tags.addWidget(tag_label(text, tone, p))
         self.tags.addStretch(1)
 
-        self.siren.set_place(a.place.id, a.place.name, state)
         self.report.set(a.place.id, state)
         self.walk.set(walk_line(a), p.text, p.text_dim)
         self.open.set(open_line(a, hour, minute, weekday), p.good if open_ else p.text_mute)
