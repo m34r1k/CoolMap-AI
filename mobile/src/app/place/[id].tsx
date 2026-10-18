@@ -8,7 +8,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { stayLabel } from "../../analysis";
 import { BigButton, Card, Gauge, Icon, InfoLine, MeterBar, T, Tag } from "../../components/ui";
-import { openDirections } from "../../directions";
 import { categoryIcon, categoryLabel, hoursLabel } from "../../places";
 import { openLine, stayLine, tags, tempCompare, tempLine, walkLine } from "../../plain";
 import { useStore } from "../../store";
@@ -74,7 +73,13 @@ export default function Detail() {
         </View>
       )}
 
-      <BigButton text="길찾기" icon="walk" p={p} onPress={() => openDirections(place, s.here)} style={{ marginTop: 6 }} />
+      <BigButton
+        text="길찾기"
+        icon="walk"
+        p={p}
+        onPress={() => router.push({ pathname: "/route/[id]", params: { id: place.id } })}
+        style={{ marginTop: 6 }}
+      />
 
       <Card p={p} style={styles.infoCard}>
         <InfoLine icon="walk" text={walkLine(a)} p={p} />

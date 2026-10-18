@@ -8,6 +8,8 @@ mobile/src/components/PlaceCard.tsx 와 같은 구성이다.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from PySide6.QtCore import Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QFont
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget
@@ -22,6 +24,23 @@ def set_style(widget: QWidget, qss: str) -> None:
     """스타일시트가 바뀔 때만 적용한다. setStyleSheet 는 같은 값이어도 스타일을 다시 계산해서 비싸다."""
     if widget.styleSheet() != qss:
         widget.setStyleSheet(qss)
+
+
+#: '길찾기' 를 누르면 부를 함수 (장소 id). 메인 창이 앱 안 길 안내(지도 화면)로 연결한다.
+#: 정해지지 않았으면 카카오맵 웹 길찾기를 연다.
+_route_handler: Callable[[str], None] | None = None
+
+
+def set_route_handler(fn: Callable[[str], None]) -> None:
+    global _route_handler
+    _route_handler = fn
+
+
+def start_route(a: Analysis, origin: tuple[float, float] | None) -> None:
+    if _route_handler is not None:
+        _route_handler(a.place.id)
+    else:
+        open_directions(a, origin)
 
 
 def open_directions(a: Analysis, origin: tuple[float, float] | None) -> None:
@@ -128,7 +147,7 @@ class TopCard(ClickableCard):
 
     def _route(self) -> None:
         if self._a:
-            open_directions(self._a, self._origin)
+            start_route(self._a, self._origin)
 
     def set_analysis(self, a: Analysis, state) -> None:
         from .. import icons

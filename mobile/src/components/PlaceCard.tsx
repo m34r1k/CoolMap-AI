@@ -2,10 +2,10 @@
 //   TopCard  — 가장 먼저 갈 곳 (홈 · 지도에서 고른 곳). 큰 길찾기 버튼이 있다.
 //   PlaceRow — 목록 한 줄. 누르면 상세로 간다.
 
+import { router } from "expo-router";
 import { Pressable, StyleSheet, View } from "react-native";
 
 import type { Analysis } from "../analysis";
-import { openDirections } from "../directions";
 import { categoryIcon, categoryLabel } from "../places";
 import { openLine, stayLine, tags, tempLine, walkLine } from "../plain";
 import { useStore } from "../store";
@@ -66,7 +66,13 @@ export function TopCard({
         </View>
       </Pressable>
       <View style={styles.actions}>
-        <BigButton text="길찾기" icon="walk" p={p} onPress={() => openDirections(a.place, s.here)} style={styles.fill} />
+        <BigButton
+          text="길찾기"
+          icon="walk"
+          p={p}
+          onPress={() => router.push({ pathname: "/route/[id]", params: { id: a.place.id } })}
+          style={styles.fill}
+        />
         <BigButton text="자세히" p={p} kind="secondary" onPress={onOpen} />
       </View>
     </View>

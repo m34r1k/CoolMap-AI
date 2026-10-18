@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import html
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
@@ -19,14 +21,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import providers
-from ..ai import Analysis, rank
+from .. import icons, providers
+from ..ai import Analysis, analyze, rank
+from ..catalog import find_by_id
 from ..config import AppState
 from ..plain import nearby, nearest_first
 from ..theme import Palette
 from .common import Card, IconButton, set_prop, ui_font
 from .mapcanvas import MapCanvas
-from .placecard import PlaceRow, TopCard
+from .placecard import PlaceRow, TopCard, open_directions
 
 LIST_LIMIT = 40
 
@@ -78,6 +81,81 @@ class MapLegend(Card):
         self.tip.setStyleSheet(f"color: {p.text_mute};")
 
 
+class RoutePanel(Card):
+    """길 안내 — 걸어서 몇 분 · 단계 안내. (mobile/src/app/route/[id].tsx 와 같은 구성)"""
+
+    closeRequested = Signal()
+    otherAppRequested = Signal()
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent, padding=18, spacing=10)
+        self.setFixedWidth(420)
+        lay = self.body()
+        self.title = QLabel("-")
+        self.title.setFont(ui_font(20, QFont.ExtraBold))
+        self.title.setWordWrap(True)
+        self.summary = QLabel("")
+        self.summary.setFont(ui_font(24, QFont.ExtraBold))
+        self.summary.setWordWrap(True)
+        self.steps = QLabel("")
+        self.steps.setFont(ui_font(16))
+        self.steps.setWordWrap(True)
+        self.steps.setTextFormat(Qt.RichText)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setStyleSheet("background: transparent;")
+        scroll.setWidget(self.steps)
+        scroll.setMaximumHeight(260)
+        self.scroll = scroll
+        lay.addWidget(self.title)
+        lay.addWidget(self.summary)
+        lay.addWidget(scroll)
+
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        self.other_btn = QPushButton("카카오맵으로 열기")
+        self.close_btn = QPushButton("길 안내 끝내기")
+        for b in (self.other_btn, self.close_btn):
+            b.setCursor(Qt.PointingHandCursor)
+            b.setMinimumHeight(46)
+            b.setFont(ui_font(15, QFont.Bold))
+        self.other_btn.clicked.connect(self.otherAppRequested.emit)
+        self.close_btn.clicked.connect(self.closeRequested.emit)
+        row.addWidget(self.other_btn, 1)
+        row.addWidget(self.close_btn, 1)
+        lay.addLayout(row)
+
+    def show_loading(self, name: str, p: Palette) -> None:
+        self.title.setText(f"{name}까지")
+        self.summary.setText("걸어가는 길을 찾고 있어요…")
+        self.summary.setStyleSheet(f"color: {p.text_dim};")
+        self.summary.setFont(ui_font(17))
+        self.scroll.setVisible(False)
+
+    def show_error(self, msg: str, p: Palette) -> None:
+        self.summary.setText(f"길을 찾지 못했어요.\n{msg}")
+        self.summary.setStyleSheet(f"color: {p.warn};")
+        self.summary.setFont(ui_font(16, QFont.Bold))
+        self.scroll.setVisible(False)
+
+    def show_route(self, data: dict, p: Palette) -> None:
+        from ..data import distance_label
+
+        minutes = max(1, round(float(data.get("time_s", 0)) / 60))
+        self.summary.setText(f"걸어서 약 {minutes}분 · {distance_label(float(data.get('distance_m', 0)))}")
+        self.summary.setStyleSheet(f"color: {p.accent};")
+        self.summary.setFont(ui_font(24, QFont.ExtraBold))
+        steps = [st.get("text", "") for st in data.get("steps", []) if st.get("text")]
+        self.steps.setText("<br><br>".join(
+            f"<b style='color:{p.accent}'>{i}.</b>&nbsp; {html.escape(t)}" for i, t in enumerate(steps, 1)))
+        self.scroll.setVisible(bool(steps))
+        # 단계가 적으면 다 보이게, 많으면 스크롤 (최대 260px)
+        self.steps.adjustSize()
+        self.scroll.setFixedHeight(min(260, self.steps.heightForWidth(self.width() - 60) + 8))
+
+
 class MapView(QWidget):
     openPlace = Signal(str)
     locateRequested = Signal()
@@ -117,6 +195,17 @@ class MapView(QWidget):
         self.panel.openRequested.connect(self.openPlace.emit)
         self.panel.closeRequested.connect(self._clear_selection)
         self.panel.hide()
+
+        # 길 안내
+        self.route_panel = RoutePanel(self.map_area)
+        self.route_panel.closeRequested.connect(self.end_route)
+        self.route_panel.otherAppRequested.connect(self._route_other_app)
+        self.route_panel.hide()
+        self._route_key = ""
+        self._route_target: Analysis | None = None
+        rp = providers.route_provider()
+        rp.ready.connect(self._on_route_ready)
+        rp.failed.connect(self._on_route_failed)
 
         # 우측 목록 -------------------------------------------------------
         side = QFrame()
@@ -178,6 +267,56 @@ class MapView(QWidget):
     def _place_panel(self) -> None:
         self.panel.adjustSize()
         self.panel.move(18, self.map_area.height() - self.panel.height() - 18)
+        self.route_panel.adjustSize()
+        self.route_panel.move(18, self.map_area.height() - self.route_panel.height() - 18)
+
+    # -- 길 안내 ------------------------------------------------------------
+    def start_route(self, pid: str) -> None:
+        """현재 위치에서 쉼터까지 걷는 길을 받아 지도에 그린다."""
+        a = self._analyses.get(pid)
+        if a is None:
+            place = find_by_id(pid, self.state.mode, self.state.origin)
+            if place is None:
+                return
+            h, m, wd = self.state.now()
+            a = analyze(place, self.state.mode, h, m, wd, self.state.target_temp, origin=self.state.origin)
+        self._route_target = a
+        self._clear_selection()
+        self.canvas.set_selected(pid)
+        self.canvas.set_route([])
+        self.canvas.fit_points([self.state.origin, a.place.latlon])
+        self.route_panel.show_loading(a.place.name, self.state.palette)
+        self.route_panel.other_btn.setIcon(icons.qicon("map", 18, self.state.palette.text))
+        self.route_panel.show()
+        self.route_panel.raise_()
+        self._place_panel()
+        self._route_key = providers.route_provider().request(self.state.origin, a.place.latlon, a.place.name)
+
+    def end_route(self) -> None:
+        self._route_key = ""
+        self._route_target = None
+        self.canvas.set_route([])
+        self.canvas.set_selected(None)
+        self.route_panel.hide()
+
+    def _route_other_app(self) -> None:
+        if self._route_target:
+            open_directions(self._route_target, self.state.origin)
+
+    def _on_route_ready(self, key: str, data: dict) -> None:
+        if key != self._route_key or not self._route_target:
+            return
+        path = [(float(lat), float(lon)) for lon, lat in data.get("path", [])]
+        self.canvas.set_route(path)
+        self.canvas.fit_points(path + [self.state.origin, self._route_target.place.latlon])
+        self.route_panel.show_route(data, self.state.palette)
+        self._place_panel()
+
+    def _on_route_failed(self, key: str, msg: str) -> None:
+        if key != self._route_key:
+            return
+        self.route_panel.show_error(msg, self.state.palette)
+        self._place_panel()
 
     def _locate(self) -> None:
         """현재 위치로 이동하고, 동시에 위치를 다시 확인한다."""
@@ -189,6 +328,8 @@ class MapView(QWidget):
         self.refresh()
 
     def _on_pick(self, pid: str) -> None:
+        if self._route_key:
+            self.end_route()
         self._selected = pid
         self.canvas.set_selected(pid)
         a = self._analyses.get(pid)
@@ -255,7 +396,9 @@ class MapView(QWidget):
             else:
                 row.setVisible(False)
 
-        if self._selected and self._selected in self._analyses:
+        if self._route_key:
+            pass      # 길 안내 중에는 선택 카드를 띄우지 않는다
+        elif self._selected and self._selected in self._analyses:
             self.panel.set_analysis(self._analyses[self._selected], state)
             self._place_panel()
         else:

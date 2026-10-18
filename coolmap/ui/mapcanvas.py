@@ -92,6 +92,7 @@ class MapCanvas(QWidget):
         self._layer_rect = QRectF()           # 레이어가 덮는 영역 (월드 픽셀)
         self._layer_zones: list[tuple[QRectF, str]] = []
         self._data_ver = 0
+        self._route: list[tuple[float, float]] = []    # 길 안내 경로 (위도, 경도)
         self._sprites: dict[tuple, QPixmap] = {}     # 라벨 이미지 캐시
         self._zooming = False
         self._zoom_settle = QTimer(self)
@@ -188,6 +189,29 @@ class MapCanvas(QWidget):
         return min(tl[0], br[0]), min(tl[1], br[1]), max(tl[0], br[0]), max(tl[1], br[1])
 
     # -- 뷰 조작 ----------------------------------------------------------
+    def set_route(self, path: list[tuple[float, float]]) -> None:
+        """길 안내 경로 (위도, 경도) 목록. 빈 목록이면 지운다."""
+        self._route = list(path)
+        self.update()
+
+    def fit_points(self, points: list[tuple[float, float]], pad: int = 90) -> None:
+        """주어진 (위도, 경도) 들이 모두 보이도록 맞춘다."""
+        if not points or self.width() < 10:
+            return
+        lats = [la for la, _ in points]
+        lons = [lo for _, lo in points]
+        self._center = ((min(lats) + max(lats)) / 2, (min(lons) + max(lons)) / 2)
+        for z in [x / 4 for x in range(int(MAX_ZOOM * 4), int(MIN_ZOOM * 4) - 1, -1)]:
+            self._zoom = z
+            xs = [self._world_px(la, lo)[0] for la, lo in points]
+            ys = [self._world_px(la, lo)[1] for la, lo in points]
+            if (max(xs) - min(xs) < self.width() - pad * 2
+                    and max(ys) - min(ys) < self.height() - pad * 2):
+                break
+        self._user_moved = True
+        self.update()
+        self.viewChanged.emit()
+
     def fit_all(self) -> None:
         """모든 쉼터가 들어오도록 맞춘다."""
         if not self._places or self.width() < 10:
@@ -333,6 +357,8 @@ class MapCanvas(QWidget):
         self._clamp = QRectF(self.rect())
 
         self._draw_tiles(p, pal)
+        if self._route:
+            self._draw_route(p, pal)
 
         self._draw_markers(p, pal)
         self._draw_user(p, pal)
@@ -369,6 +395,24 @@ class MapCanvas(QWidget):
                 p.drawPixmap(QRectF(sx, sy, size + 1, size + 1), pm,
                              QRectF(0, 0, TILE_SIZE, TILE_SIZE))
         self._tiles_missing = missing
+
+    def _draw_route(self, p: QPainter, pal: Palette) -> None:
+        """길 안내 선 — 바깥 테두리를 먼저 깔아 어떤 지도 위에서도 잘 보이게 한다."""
+        path = QPainterPath()
+        for i, (la, lo) in enumerate(self._route):
+            pt = self._pt(la, lo)
+            if i == 0:
+                path.moveTo(pt)
+            else:
+                path.lineTo(pt)
+        for color, width in ((QColor(0, 0, 0, 150) if pal.dark else QColor(255, 255, 255, 230), 11.0),
+                             (QColor(pal.accent), 6.0)):
+            pen = QPen(color, width)
+            pen.setCapStyle(Qt.RoundCap)
+            pen.setJoinStyle(Qt.RoundJoin)
+            p.setPen(pen)
+            p.setBrush(Qt.NoBrush)
+            p.drawPath(path)
 
     # ------------------------------------------------------------------
     def _building_for(self, place: Place) -> dict | None:

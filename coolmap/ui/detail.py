@@ -24,7 +24,7 @@ from ..config import AppState
 from ..plain import open_line, stay_line, tags, temp_compare, temp_line, walk_line
 from ..theme import Palette
 from .common import Card, GaugeArc, IconLabel, MeterBar, nuisance_color, ui_font
-from .placecard import InfoLine, open_directions, tag_label
+from .placecard import InfoLine, start_route, tag_label
 
 CONTENT_WIDTH = 860
 
@@ -180,7 +180,7 @@ class DetailView(QWidget):
     # ------------------------------------------------------------------
     def _route(self) -> None:
         if self._analysis:
-            open_directions(self._analysis, self.state.origin)
+            start_route(self._analysis, self.state.origin)
 
     def _toggle_fav(self) -> None:
         if self._pid:

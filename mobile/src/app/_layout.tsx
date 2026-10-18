@@ -11,6 +11,7 @@ function Root() {
       <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: p.bg } }}>
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="place/[id]" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="route/[id]" options={{ animation: "slide_from_bottom" }} />
       </Stack>
       <StatusBar style={p.dark ? "light" : "dark"} />
     </>

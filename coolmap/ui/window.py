@@ -24,6 +24,7 @@ from ..theme import build_qss
 from .chat import ChatView
 from .common import IconLabel, apply_palette_tree, ui_font
 from .detail import DetailView
+from .placecard import set_route_handler
 from .home import HomeView
 from .mapview import MapView
 from .settings_view import SettingsView
@@ -223,6 +224,9 @@ class MainWindow(QMainWindow):
         self._clock.timeout.connect(self._tick_clock)
         self._clock.start(30000)
 
+        # '길찾기' 는 앱 안 길 안내(지도 화면)로 연다
+        set_route_handler(self.start_route)
+
         self.apply_theme()
         self.navigate("home")
 
@@ -338,6 +342,10 @@ class MainWindow(QMainWindow):
 
     def _back(self) -> None:
         self.navigate(self._last_section)
+
+    def start_route(self, pid: str) -> None:
+        self.navigate("map")
+        self.map_view.start_route(pid)
 
     def _show_on_map(self, pid: str) -> None:
         self.navigate("map")

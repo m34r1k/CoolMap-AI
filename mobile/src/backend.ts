@@ -93,3 +93,21 @@ export async function aiJudge(items: { name: string; kind: string }[]): Promise<
   );
   return d.results ?? [];
 }
+
+// -- 길 안내 (supabase/functions/route · T맵 보행자 경로) ----------------------------
+
+export type WalkRoute = {
+  distance_m: number;
+  time_s: number;
+  path: [number, number][]; // [경도, 위도]
+  steps: { text: string; at: [number, number] | null }[];
+};
+
+/** 내 위치에서 쉼터까지 걷는 길. from · to 는 [위도, 경도]. */
+export function walkRoute(from: [number, number], to: [number, number], toName: string): Promise<WalkRoute> {
+  return request<WalkRoute>(
+    "/functions/v1/route",
+    { method: "POST", body: JSON.stringify({ from, to, to_name: toName }) },
+    30_000,
+  );
+}
