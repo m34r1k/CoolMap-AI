@@ -25,7 +25,8 @@ REFRESH_S = 5 * 60
 
 class ReportProvider(QObject):
     updated = Signal()
-    added = Signal(bool, str)       # (성공 여부, 쉬운 말 안내)
+    added = Signal(bool, str, str, int, str)    # (성공, 안내, 장소 id, 제보 id, 종류)
+    cancelled = Signal(bool, str, str)          # (성공, 안내, 장소 id)
 
     def __init__(self, parent: QObject | None = None):
         super().__init__(parent)
@@ -67,22 +68,43 @@ class ReportProvider(QObject):
         finally:
             self._pending = False
 
-    def add(self, place_id: str, kind: str) -> None:
-        self._pool.submit(self._add, place_id, kind)
+    def add(self, place_id: str, kind: str, device: str) -> None:
+        self._pool.submit(self._add, place_id, kind, device)
 
-    def _add(self, place_id: str, kind: str) -> None:
+    def cancel(self, place_id: str, report_id: int, device: str) -> None:
+        self._pool.submit(self._cancel, place_id, report_id, device)
+
+    @staticmethod
+    def _http_error(exc: urllib.error.HTTPError) -> str:
         try:
-            backend.call("report", {"task": "add", "place_id": place_id, "kind": kind}, timeout=20)
-            self._fetched_at = 0.0              # 내 제보가 바로 보이도록 다음 want() 에서 다시 받는다
-            self.added.emit(True, "알려 주셔서 고마워요. 다른 분들께도 함께 보여 드릴게요.")
-        except urllib.error.HTTPError as exc:
-            try:
-                msg = json.loads(exc.read().decode("utf-8")).get("error", "")
-            except Exception:
-                msg = ""
-            self.added.emit(False, msg or f"서버 응답 {exc.code}")
+            msg = json.loads(exc.read().decode("utf-8")).get("error", "")
         except Exception:
-            self.added.emit(False, "인터넷 연결을 확인해 주세요")
+            msg = ""
+        return msg or f"서버 응답 {exc.code}"
+
+    def _add(self, place_id: str, kind: str, device: str) -> None:
+        try:
+            d = backend.call("report", {"task": "add", "place_id": place_id, "kind": kind,
+                                        "device": device}, timeout=20)
+            self._fetched_at = 0.0              # 내 제보가 바로 보이도록 다음 want() 에서 다시 받는다
+            msg = ("다른 분들께 '지금은 괜찮아요' 로 보여 드릴게요." if kind == "ok" else
+                   "다른 분들께도 함께 보여 드릴게요.\n잘못 눌렀다면 '내 제보 취소' 를 누르세요.")
+            self.added.emit(True, msg, place_id, int(d.get("id") or 0), kind)
+        except urllib.error.HTTPError as exc:
+            self.added.emit(False, self._http_error(exc), place_id, 0, kind)
+        except Exception:
+            self.added.emit(False, "인터넷 연결을 확인해 주세요", place_id, 0, kind)
+
+    def _cancel(self, place_id: str, report_id: int, device: str) -> None:
+        try:
+            backend.call("report", {"task": "cancel", "id": int(report_id), "device": device}, timeout=20)
+            self._fetched_at = 0.0
+            self.cancelled.emit(True, "제보를 취소했어요.", place_id)
+        except urllib.error.HTTPError as exc:
+            self._fetched_at = 0.0
+            self.cancelled.emit(False, self._http_error(exc), place_id)
+        except Exception:
+            self.cancelled.emit(False, "인터넷 연결을 확인해 주세요", place_id)
 
     def shutdown(self) -> None:
         self._pool.shutdown(wait=False, cancel_futures=True)

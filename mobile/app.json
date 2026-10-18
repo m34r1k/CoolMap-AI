@@ -2,19 +2,19 @@
   "expo": {
     "name": "CoolMap",
     "slug": "coolmap",
-    "version": "0.3.0",
+    "version": "0.3.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "ios": {
       "bundleIdentifier": "com.m34r1k.coolmap",
-      "buildNumber": "4",
+      "buildNumber": "5",
       "supportsTablet": false,
       "appleTeamId": "8R3K6WU767"
     },
     "android": {
       "package": "com.m34r1k.coolmap",
-      "versionCode": 9,
+      "versionCode": 10,
       "adaptiveIcon": {
         "backgroundColor": "#FFFFFF",
         "foregroundImage": "./assets/android-icon-foreground.png",

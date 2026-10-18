@@ -168,6 +168,8 @@ def ago_word(iso: str) -> str:
 
 def report_line(r: dict) -> str:
     """최근 제보 한 줄. 예) '3시간 전 이용자 제보: 문이 닫혀 있었어요 (2건)'"""
+    if r.get("kind") == "ok":
+        return f"{ago_word(str(r.get('at', '')))} 이용자 확인: 지금은 괜찮아요"
     what = next((past for kind, _, past in REPORT_KINDS if kind == r.get("kind")), "문제가 있었어요")
     count = int(r.get("count") or 1)
     return f"{ago_word(str(r.get('at', '')))} 이용자 제보: {what}" + (f" ({count}건)" if count > 1 else "")

@@ -229,6 +229,7 @@ class MainWindow(QMainWindow):
         self.reports = providers.report_provider()
         self.reports.updated.connect(self.refresh_all)
         self.reports.added.connect(self._on_report_added)
+        self.reports.cancelled.connect(self._on_report_cancelled)
 
         # '길찾기' 는 앱 안 길 안내(지도 화면)로 연다
         set_route_handler(self.start_route)
@@ -349,12 +350,23 @@ class MainWindow(QMainWindow):
     def _back(self) -> None:
         self.navigate(self._last_section)
 
-    def _on_report_added(self, ok: bool, msg: str) -> None:
+    def _on_report_added(self, ok: bool, msg: str, place_id: str, report_id: int, kind: str) -> None:
         if ok:
+            if kind != "ok" and report_id:
+                self.state.remember_report(place_id, report_id, kind)   # 취소 버튼용
             QMessageBox.information(self, "알려 주셔서 고마워요", msg)
             self.refresh_current()      # 다음 want() 에서 내 제보를 바로 받아 온다
         else:
             QMessageBox.warning(self, "알리지 못했어요", msg)
+
+    def _on_report_cancelled(self, ok: bool, msg: str, place_id: str) -> None:
+        # 이미 취소됐거나 48시간이 지난 제보여도 내 목록에서는 지운다
+        self.state.forget_report(place_id)
+        if ok:
+            QMessageBox.information(self, "제보 취소", msg)
+        else:
+            QMessageBox.warning(self, "제보 취소", msg)
+        self.refresh_current()
 
     def start_route(self, pid: str) -> None:
         self.navigate("map")

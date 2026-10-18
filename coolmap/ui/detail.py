@@ -21,10 +21,10 @@ from .. import icons, providers
 from ..ai import Analysis, analyze
 from ..catalog import find_by_id
 from ..config import AppState
-from ..plain import open_line, report_line, stay_line, tags, temp_compare, temp_line, walk_line
+from ..plain import open_line, stay_line, tags, temp_compare, temp_line, walk_line
 from ..theme import Palette
 from .common import Card, GaugeArc, IconLabel, MeterBar, nuisance_color, ui_font
-from .placecard import InfoLine, SirenButton, start_route, tag_label
+from .placecard import InfoLine, ReportNotice, SirenButton, start_route, tag_label
 
 CONTENT_WIDTH = 860
 
@@ -104,7 +104,7 @@ class DetailView(QWidget):
         lay.addWidget(self.route_btn)
 
         info = Card(padding=18, spacing=12)
-        self.report = InfoLine("siren")
+        self.report = ReportNotice()
         info.body().addWidget(self.report)
         self.walk = InfoLine("walk")
         self.open = InfoLine("clock")
@@ -242,13 +242,9 @@ class DetailView(QWidget):
         self.tags.addStretch(1)
 
         self.route_btn.setIcon(icons.qicon("walk", 22, p.accent_ink))
-        self.siren.set_place(place.id, place.name, p)
-        reports = providers.report_provider()
-        reports.want([place.id])
-        r = reports.get(place.id)
-        self.report.setVisible(bool(r))
-        if r:
-            self.report.set(report_line(r), p.bad)
+        self.siren.set_place(place.id, place.name, state)
+        providers.report_provider().want([place.id])
+        self.report.set(place.id, state)
         self.walk.set(walk_line(a), p.text, p.text_dim)
         self.open.set(open_line(a, hour, minute, weekday), p.good if open_ else p.text_mute)
         self.hours.setText(f"운영 시간 {place.hours_label()}")

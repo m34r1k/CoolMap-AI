@@ -118,6 +118,7 @@ export function agoWord(iso: string, now = Date.now()): string {
 
 /** 최근 제보 한 줄. 예) '3시간 전 이용자 제보: 문이 닫혀 있었어요 (2건)' */
 export function reportLine(r: { kind: string; at: string; count: number }): string {
+  if (r.kind === "ok") return `${agoWord(r.at)} 이용자 확인: 지금은 괜찮아요`;
   const what = REPORT_KINDS.find((k) => k.kind === r.kind)?.past ?? "문제가 있었어요";
   return `${agoWord(r.at)} 이용자 제보: ${what}${r.count > 1 ? ` (${r.count}건)` : ""}`;
 }

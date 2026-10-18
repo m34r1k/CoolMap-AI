@@ -70,8 +70,10 @@ def tag_label(text: str, tone: str, p: Palette) -> QLabel:
 class ReportDialog(QDialog):
     """'어떤 문제가 있나요?' — 큰 버튼으로 고른다 (mobile/src/components/Report.tsx)."""
 
-    def __init__(self, place_id: str, name: str, p: Palette, parent: QWidget | None = None):
+    def __init__(self, place_id: str, name: str, state, parent: QWidget | None = None):
         super().__init__(parent)
+        self.state = state
+        p = state.palette
         self.setWindowTitle("쉼터 문제 알리기")
         self.setMinimumWidth(420)
         lay = QVBoxLayout(self)
@@ -85,6 +87,17 @@ class ReportDialog(QDialog):
         sub.setStyleSheet(f"color: {p.text_dim};")
         lay.addWidget(title)
         lay.addWidget(sub)
+        current = providers.report_provider().get(place_id)
+        if current and current.get("kind") != "ok":
+            # 문제 제보가 올라와 있으면, 현장에서 괜찮은 걸 본 사람이 풀어 줄 수 있다
+            ok = QPushButton("  지금은 괜찮아요")
+            ok.setIcon(icons.qicon("check_circle", 22, p.good))
+            ok.setMinimumHeight(56)
+            ok.setFont(ui_font(17, QFont.Bold))
+            ok.setStyleSheet(f"text-align: left; padding-left: 16px; border: 1.5px solid {p.good};")
+            ok.setCursor(Qt.PointingHandCursor)
+            ok.clicked.connect(lambda: self._send(place_id, "ok"))
+            lay.addWidget(ok)
         for kind, label, _ in REPORT_KINDS:
             b = QPushButton(f"  {label}")
             b.setIcon(icons.qicon("siren", 22, p.bad))
@@ -101,7 +114,7 @@ class ReportDialog(QDialog):
         lay.addWidget(cancel)
 
     def _send(self, place_id: str, kind: str) -> None:
-        providers.report_provider().add(place_id, kind)     # 결과 안내는 메인 창이 띄운다
+        providers.report_provider().add(place_id, kind, self.state.device_id)   # 결과 안내는 메인 창이 띄운다
         self.accept()
 
 
@@ -111,7 +124,7 @@ class SirenButton(QToolButton):
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self._pid, self._name = "", ""
-        self._pal: Palette | None = None
+        self._state = None
         self.setText("알리기")
         self.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
         self.setIconSize(icons.icon_size(28))
@@ -121,14 +134,64 @@ class SirenButton(QToolButton):
         self.setAutoRaise(True)
         self.clicked.connect(self._open)
 
-    def set_place(self, place_id: str, name: str, p: Palette) -> None:
-        self._pid, self._name, self._pal = place_id, name, p
+    def set_place(self, place_id: str, name: str, state) -> None:
+        self._pid, self._name, self._state = place_id, name, state
+        p = state.palette
         self.setIcon(icons.qicon("siren", 28, p.bad))
         set_style(self, f"QToolButton {{ color: {p.bad}; border: none; background: transparent; padding: 2px; }}")
 
     def _open(self) -> None:
-        if self._pid and self._pal:
-            ReportDialog(self._pid, self._name, self._pal, self.window()).exec()
+        if self._pid and self._state is not None:
+            ReportDialog(self._pid, self._name, self._state, self.window()).exec()
+
+
+class ReportNotice(QWidget):
+    """최근 제보 한 줄 — 문제는 빨강, '지금은 괜찮아요' 는 초록. 내가 보낸 제보면 '내 제보 취소' 를 붙인다."""
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._pid = ""
+        self._state = None
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(4)
+        self.line = InfoLine("siren")
+        self.cancel_btn = QPushButton("  내 제보 취소")
+        self.cancel_btn.setCursor(Qt.PointingHandCursor)
+        self.cancel_btn.setFont(ui_font(14, QFont.Bold))
+        self.cancel_btn.clicked.connect(self._cancel)
+        row = QHBoxLayout()
+        row.setContentsMargins(30, 0, 0, 0)
+        row.addWidget(self.cancel_btn)
+        row.addStretch(1)
+        lay.addWidget(self.line)
+        lay.addLayout(row)
+
+    def set(self, place_id: str, state) -> None:
+        self._pid, self._state = place_id, state
+        p = state.palette
+        r = providers.report_provider().get(place_id)
+        mine = state.my_report(place_id)
+        self.setVisible(bool(r or mine))
+        self.line.setVisible(bool(r))
+        if r:
+            ok = r.get("kind") == "ok"
+            self.line.icon.set_icon("check_circle" if ok else "siren")
+            self.line.set(report_line(r), p.good if ok else p.bad)
+        self.cancel_btn.setVisible(bool(mine))
+        self.cancel_btn.setIcon(icons.qicon("refresh", 16, p.text_dim))
+        set_style(self.cancel_btn, f"QPushButton {{ color: {p.text_dim}; border: none; background: transparent; padding: 2px; }}")
+
+    def _cancel(self) -> None:
+        mine = self._state.my_report(self._pid) if self._state else None
+        if not mine:
+            return
+        from PySide6.QtWidgets import QMessageBox
+
+        ans = QMessageBox.question(self.window(), "내 제보 취소", "이 쉼터에 보낸 제보를 취소할까요?")
+        if ans == QMessageBox.Yes:
+            self.cancel_btn.setEnabled(False)
+            providers.report_provider().cancel(self._pid, int(mine["id"]), self._state.device_id)
 
 
 class InfoLine(QWidget):
@@ -193,7 +256,7 @@ class TopCard(ClickableCard):
         self.tags.setSpacing(6)
         lay.addLayout(self.tags)
 
-        self.report = InfoLine("siren")
+        self.report = ReportNotice()
         self.walk = InfoLine("walk")
         self.open = InfoLine("clock")
         self.temp = InfoLine("thermo")
@@ -252,11 +315,8 @@ class TopCard(ClickableCard):
             self.tags.addWidget(tag_label(text, tone, p))
         self.tags.addStretch(1)
 
-        self.siren.set_place(a.place.id, a.place.name, p)
-        r = providers.report_provider().get(a.place.id)
-        self.report.setVisible(bool(r))
-        if r:
-            self.report.set(report_line(r), p.bad)
+        self.siren.set_place(a.place.id, a.place.name, state)
+        self.report.set(a.place.id, state)
         self.walk.set(walk_line(a), p.text, p.text_dim)
         self.open.set(open_line(a, hour, minute, weekday), p.good if open_ else p.text_mute)
         self.temp.set(temp_line(a), p.text, p.text_dim)

@@ -36,6 +36,8 @@ DEFAULTS: dict = {
     "animations": True,
     "big_text": False,             # 글씨를 크게 (다시 켜면 적용)
     "dark_mode": False,            # 기본은 라이트, 설정에서 다크로
+    "device_id": "",               # 제보 본인 확인용 무작위 표식 (처음 제보할 때 만든다)
+    "my_reports": {},              # 내가 보낸 제보 {장소 id: {id, kind, at}} — 취소 버튼용, 48시간
     "only_official": False,
     "ai_candidates": True,        # 지도의 상호를 AI 로 판단해 추가 하이라이트
     "max_walk": 40,               # 분
@@ -116,6 +118,37 @@ class AppState(QObject):
 
     def toggle_mode(self) -> None:
         self.mode = HEATING if self.mode == COOLING else COOLING
+
+    # -- 쉼터 제보 ------------------------------------------------------------
+    @property
+    def device_id(self) -> str:
+        """제보 본인 확인용 기기 표식. 없으면 만든다."""
+        d = self.get("device_id")
+        if not d:
+            import uuid
+
+            d = uuid.uuid4().hex
+            self.set("device_id", d, silent=True)
+        return d
+
+    def my_report(self, place_id: str) -> dict | None:
+        import time
+
+        r = (self.get("my_reports") or {}).get(place_id)
+        return r if r and r.get("at", 0) > time.time() - 48 * 3600 else None
+
+    def remember_report(self, place_id: str, report_id: int, kind: str) -> None:
+        import time
+
+        mine = {k: v for k, v in (self.get("my_reports") or {}).items()
+                if v.get("at", 0) > time.time() - 48 * 3600}
+        mine[place_id] = {"id": int(report_id), "kind": kind, "at": time.time()}
+        self.set("my_reports", mine, silent=True)
+
+    def forget_report(self, place_id: str) -> None:
+        mine = dict(self.get("my_reports") or {})
+        if mine.pop(place_id, None) is not None:
+            self.set("my_reports", mine, silent=True)
 
     @property
     def palette(self) -> Palette:

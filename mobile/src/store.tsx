@@ -15,13 +15,24 @@ import {
 } from "react";
 
 import { type Analysis, analyze, type Now, nowParts, type Weather, weatherFromObs } from "./analysis";
-import { recentReports, type Report, type ReportKind, reportShelter, sheltersNear, weather as fetchWeather } from "./backend";
+import {
+  cancelReport,
+  recentReports,
+  type Report,
+  type ReportKind,
+  reportShelter,
+  sheltersNear,
+  weather as fetchWeather,
+} from "./backend";
 import { mergeCandidates, nearbyCandidates } from "./candidates";
 import { haversine, walkMinutes } from "./geo";
 import { onNuisance } from "./nuisance";
 import { type Place, shelterToPlace } from "./places";
 import { load, save } from "./storage";
 import { defaultMode, type Mode, type Palette, paletteFor } from "./theme";
+
+/** 내가 보낸 제보 (취소 버튼용) */
+export type MyReport = { id: number; kind: ReportKind; at: number };
 
 export type LngLat = [number, number];
 export type Fix = { coord: LngLat; accuracyM: number };
@@ -99,8 +110,12 @@ type Store = {
   reload: () => void;
   /** 최근 48시간 이용자 제보 (쉼터 id → 가장 최근 제보) */
   reports: Record<string, Report>;
-  /** 쉼터에 문제가 있다고 알린다. 실패하면 쉬운 말 오류를 던진다 */
+  /** 쉼터에 문제가 있다고(또는 괜찮다고) 알린다. 실패하면 쉬운 말 오류를 던진다 */
   report: (placeId: string, kind: ReportKind) => Promise<void>;
+  /** 이 쉼터에 내가 48시간 안에 보낸 제보 (취소 버튼용) */
+  myReport: (placeId: string) => MyReport | undefined;
+  /** 내 제보 취소 */
+  cancelMyReport: (placeId: string) => Promise<void>;
 };
 
 const Ctx = createContext<Store | null>(null);
@@ -378,10 +393,60 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const iv = setInterval(() => setReportsTick((k) => k + 1), 5 * 60_000);
     return () => clearInterval(iv);
   }, []);
-  const report = useCallback(async (placeId: string, kind: ReportKind) => {
-    await reportShelter(placeId, kind);
-    setReportsTick((k) => k + 1);
+  // 내가 보낸 제보 — 취소 버튼을 띄우려고 48시간 동안 기억한다. 기기 표식은 본인 확인용이다.
+  const [myReports, setMyReports] = useState<Record<string, MyReport>>({});
+  const device = useRef("");
+  useEffect(() => {
+    load<string>("device_id", "").then((id) => {
+      if (id) {
+        device.current = id;
+        return;
+      }
+      const fresh = Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
+      device.current = fresh;
+      save("device_id", fresh);
+    });
+    load<Record<string, MyReport>>("my_reports", {}).then((all) => {
+      const cut = Date.now() - 48 * 3600_000;
+      setMyReports(Object.fromEntries(Object.entries(all).filter(([, r]) => r.at > cut)));
+    });
   }, []);
+  const rememberMine = useCallback((next: Record<string, MyReport>) => {
+    setMyReports(next);
+    save("my_reports", next);
+  }, []);
+
+  const report = useCallback(
+    async (placeId: string, kind: ReportKind) => {
+      const id = await reportShelter(placeId, kind, device.current);
+      if (kind !== "ok") rememberMine({ ...myReports, [placeId]: { id, kind, at: Date.now() } });
+      setReportsTick((k) => k + 1);
+    },
+    [myReports, rememberMine],
+  );
+  const myReport = useCallback(
+    (placeId: string) => {
+      const r = myReports[placeId];
+      return r && r.at > Date.now() - 48 * 3600_000 ? r : undefined;
+    },
+    [myReports],
+  );
+  const cancelMyReport = useCallback(
+    async (placeId: string) => {
+      const r = myReports[placeId];
+      if (!r) return;
+      try {
+        await cancelReport(r.id, device.current);
+      } finally {
+        // 이미 취소됐거나 시간이 지난 제보여도 내 목록에서는 지운다
+        const next = { ...myReports };
+        delete next[placeId];
+        rememberMine(next);
+        setReportsTick((k) => k + 1);
+      }
+    },
+    [myReports, rememberMine],
+  );
 
   const value: Store = {
     ready,
@@ -413,6 +478,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     reload: () => setReloadKey((k) => k + 1),
     reports,
     report,
+    myReport,
+    cancelMyReport,
   };
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

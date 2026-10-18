@@ -114,14 +114,26 @@ export function walkRoute(from: [number, number], to: [number, number], toName: 
 
 // -- 쉼터 제보 (supabase/functions/report) -----------------------------------------
 
-export type ReportKind = "closed" | "gone" | "no_hvac";
+export type ReportKind = "closed" | "gone" | "no_hvac" | "ok";
 export type Report = { kind: ReportKind; at: string; count: number };
 
-/** 이 쉼터에 문제가 있다고 알린다. 같은 쉼터에 10분 안에 다시 알리면 서버가 거절한다. */
-export async function reportShelter(placeId: string, kind: ReportKind): Promise<void> {
+/**
+ * 이 쉼터에 문제가 있다고(또는 '지금은 괜찮아요' 라고) 알린다. 제보 id 를 돌려준다 — 취소할 때 쓴다.
+ * 같은 쉼터에 10분 안에 다시 알리면 서버가 거절한다. device 는 본인 확인용 기기 표식.
+ */
+export async function reportShelter(placeId: string, kind: ReportKind, device: string): Promise<number> {
+  const d = await request<{ ok: boolean; id: number }>("/functions/v1/report", {
+    method: "POST",
+    body: JSON.stringify({ task: "add", place_id: placeId, kind, device }),
+  });
+  return d.id;
+}
+
+/** 내가 보낸 제보를 취소한다 (48시간 안, 같은 기기에서만) */
+export async function cancelReport(id: number, device: string): Promise<void> {
   await request<{ ok: boolean }>("/functions/v1/report", {
     method: "POST",
-    body: JSON.stringify({ task: "add", place_id: placeId, kind }),
+    body: JSON.stringify({ task: "cancel", id, device }),
   });
 }
 

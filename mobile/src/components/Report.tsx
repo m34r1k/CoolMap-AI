@@ -36,13 +36,17 @@ function ReportSheet({ placeId, placeName, p, onClose }: { placeId: string; plac
   const insets = useSafeAreaInsets();
   const s = useStore();
   const [busy, setBusy] = useState<ReportKind | null>(null);
+  const current = s.reports[placeId];
 
   const send = async (kind: ReportKind) => {
     setBusy(kind);
     try {
       await s.report(placeId, kind);
       onClose();
-      Alert.alert("알려 주셔서 고마워요", "다른 분들께도 함께 보여 드릴게요.");
+      Alert.alert(
+        "알려 주셔서 고마워요",
+        kind === "ok" ? "다른 분들께 '지금은 괜찮아요' 로 보여 드릴게요." : "다른 분들께도 함께 보여 드릴게요.\n잘못 눌렀다면 '내 제보 취소' 를 누르세요.",
+      );
     } catch (e) {
       setBusy(null);
       Alert.alert("알리지 못했어요", e instanceof Error ? e.message : String(e));
@@ -62,6 +66,23 @@ function ReportSheet({ placeId, placeName, p, onClose }: { placeId: string; plac
         <T size={15} color={p.textDim} numberOfLines={2}>
           {placeName}
         </T>
+        {/* 문제 제보가 올라와 있으면, 현장에서 괜찮은 걸 본 사람이 풀어 줄 수 있다 */}
+        {current && current.kind !== "ok" && (
+          <Pressable
+            disabled={busy !== null}
+            onPress={() => send("ok")}
+            style={({ pressed }) => [
+              styles.option,
+              { borderColor: p.good, backgroundColor: pressed ? p.cardAlt : p.card, opacity: busy && busy !== "ok" ? 0.5 : 1 },
+            ]}
+          >
+            <Icon name="check-circle-outline" size={26} color={p.good} />
+            <T size={18} weight="700" color={p.text} style={styles.fill}>
+              지금은 괜찮아요
+            </T>
+            {busy === "ok" && <ActivityIndicator color={p.good} />}
+          </Pressable>
+        )}
         {REPORT_KINDS.map((k) => (
           <Pressable
             key={k.kind}
@@ -89,11 +110,51 @@ function ReportSheet({ placeId, placeName, p, onClose }: { placeId: string; plac
   );
 }
 
-/** 최근 제보가 있으면 빨간 한 줄로 보여 준다 */
+/** 최근 제보 한 줄 — 문제는 빨강, '지금은 괜찮아요' 는 초록. 내가 보낸 제보면 취소 버튼을 붙인다 */
 export function ReportNotice({ placeId, p }: { placeId: string; p: Palette }) {
-  const r = useStore().reports[placeId];
-  if (!r) return null;
-  return <InfoLine icon="alarm-light" text={reportLine(r)} p={p} color={p.bad} />;
+  const s = useStore();
+  const [busy, setBusy] = useState(false);
+  const r = s.reports[placeId];
+  const mine = s.myReport(placeId);
+  if (!r && !mine) return null;
+  const cancel = () =>
+    Alert.alert("내 제보 취소", "이 쉼터에 보낸 제보를 취소할까요?", [
+      { text: "아니요", style: "cancel" },
+      {
+        text: "취소하기",
+        style: "destructive",
+        onPress: async () => {
+          setBusy(true);
+          try {
+            await s.cancelMyReport(placeId);
+          } catch (e) {
+            Alert.alert("취소하지 못했어요", e instanceof Error ? e.message : String(e));
+          } finally {
+            setBusy(false);
+          }
+        },
+      },
+    ]);
+  return (
+    <View style={{ gap: 6 }}>
+      {r && (
+        <InfoLine
+          icon={r.kind === "ok" ? "check-circle" : "alarm-light"}
+          text={reportLine(r)}
+          p={p}
+          color={r.kind === "ok" ? p.good : p.bad}
+        />
+      )}
+      {mine && (
+        <Pressable onPress={cancel} disabled={busy} hitSlop={8} style={styles.cancelMine}>
+          {busy ? <ActivityIndicator size="small" color={p.textDim} /> : <Icon name="undo" size={18} color={p.textDim} />}
+          <T size={14} weight="700" color={p.textDim}>
+            내 제보 취소
+          </T>
+        </Pressable>
+      )}
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
@@ -112,4 +173,5 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   cancel: { justifyContent: "center" },
+  cancelMine: { flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start", marginLeft: 30, paddingVertical: 4 },
 });
