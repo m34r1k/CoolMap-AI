@@ -56,6 +56,25 @@ class SettingsView(QWidget):
         title.setObjectName("h1")
         lay.addWidget(title)
 
+        # 자주 바꾸는 것만 먼저 보이고, 나머지는 '고급 설정' 을 펼쳐야 보인다
+        self.adv = QWidget()
+        self.adv_lay = QVBoxLayout(self.adv)
+        self.adv_lay.setContentsMargins(0, 0, 0, 0)
+        self.adv_lay.setSpacing(18)
+        self.adv.setVisible(False)
+
+        # 0. 보기 --------------------------------------------------------------
+        card, body = self._card("보기", "info")
+        self.cb_dark = self._check(body, "다크 모드 — 어두운 화면으로 보여 줘요")
+        self.cb_dark.toggled.connect(lambda v: self._set("dark_mode", v))
+        self.cb_big = self._check(body, "큰 글씨 — 모든 글씨를 크게 보여 줘요")
+        self.cb_big.toggled.connect(self._set_big_text)
+        self.big_note = QLabel("")
+        self.big_note.setObjectName("mute")
+        self.big_note.setWordWrap(True)
+        body.addWidget(self.big_note)
+        lay.addWidget(card)
+
         # 1. 지도 표기 방식 ------------------------------------------------
         card, body = self._card("지도 표기 방식", "layers")
         desc = QLabel(
@@ -78,65 +97,60 @@ class SettingsView(QWidget):
 
         self.cb_labels = self._check(body, "지도에 장소 이름 라벨 표시")
         self.cb_labels.toggled.connect(lambda v: self._set("map_labels", v))
-        self.cb_events = self._check(body, "이벤트 영향권을 지도에 원으로 표시")
-        self.cb_events.toggled.connect(lambda v: self._set("show_event_zones", v))
         self.cb_closed = self._check(body, "운영이 끝난 쉼터도 지도에 표시")
         self.cb_closed.toggled.connect(lambda v: self._set("show_closed", v))
         self.cb_anim = self._check(body, "애니메이션 효과 사용 (레이더 · 펄스)")
         self.cb_anim.toggled.connect(lambda v: self._set("animations", v))
-        lay.addWidget(card)
+        self.adv_lay.addWidget(card)
 
         # 2. 모드 / 목표 온도 -----------------------------------------------
-        card, body = self._card("모드 · 목표 온도", "thermo")
-        self.cool_slider, cool_row = self._slider("냉방 목표 온도", 16, 28)
+        card, body = self._card("목표 온도", "thermo")
+        self.cool_slider, cool_row = self._slider("더위 피하기", 16, 28)
         self.cool_slider.valueChanged.connect(lambda v: self._set("target_cool", float(v)))
         body.addLayout(cool_row)
-        self.heat_slider, heat_row = self._slider("난방 목표 온도", 16, 28)
+        self.heat_slider, heat_row = self._slider("추위 피하기", 16, 28)
         self.heat_slider.valueChanged.connect(lambda v: self._set("target_heat", float(v)))
         body.addLayout(heat_row)
         note = QLabel("목표 온도에 가까울수록 쾌적 점수가 높아집니다.")
         note.setObjectName("mute")
         note.setFont(mono(9, QFont.Normal, 0.5))
         body.addWidget(note)
-        lay.addWidget(card)
+        self.adv_lay.addWidget(card)
 
         # 3. 추천 필터 --------------------------------------------------------
-        card, body = self._card("추천 필터", "filter")
-        self.cb_official = self._check(body, "공식 지정 무더위·한파 쉼터만 보기")
+        card, body = self._card("쉼터 찾기", "filter")
+        self.cb_official = self._check(body, "공식 쉼터만 보기 — 정부가 지정한 무더위·한파 쉼터만")
         self.cb_official.toggled.connect(lambda v: self._set("only_official", v))
-        self.cb_ai = self._check(body, "지도에 이름이 있는 곳을 AI로 추가 판단")
+        self.cb_ai = self._check(body, "AI 추정 쉼터도 보기")
         self.cb_ai.toggled.connect(lambda v: self._set("ai_candidates", v))
         ainote = QLabel(
-            "하나로마트·도서관처럼 지도에 상호는 떠 있지만 공식 쉼터로 등록되지 않은 "
-            "곳을 Gemini가 판단해 점선으로 함께 표시합니다. 추정이므로 운영시간과 "
-            "이용 가능 여부는 현장에서 확인하세요. (Gemini 키 필요)"
+            "도서관·마트처럼 쉼터로 등록되진 않았지만 쉬어 갈 만한 곳을 AI가 골라 "
+            "함께 보여 줘요. 운영 여부는 현장에서 확인하세요."
         )
         ainote.setObjectName("mute")
-        ainote.setFont(mono(9, QFont.Normal, 0.5))
+        ainote.setFont(ui_font(14))
         ainote.setWordWrap(True)
         body.addWidget(ainote)
-        self.walk_slider, walk_row = self._slider("최대 도보 시간", 5, 60, unit="분")
+        self.walk_slider, walk_row = self._slider("걸어서 최대", 5, 60, unit="분")
         self.walk_slider.valueChanged.connect(lambda v: self._set("max_walk", int(v)))
         body.addLayout(walk_row)
-        self.radius_slider, radius_row = self._slider("쉼터 검색 반경", 500, 5000, unit="m")
+        self.radius_slider, radius_row = self._slider("찾는 범위", 500, 5000, unit="m")
         self.radius_slider.setSingleStep(250)
         self.radius_slider.valueChanged.connect(
             lambda v: self._set("search_radius", int(round(v / 250) * 250)))
         body.addLayout(radius_row)
-        rnote = QLabel("전국 6만여 곳 중 현재 위치 주변만 불러옵니다. 넓힐수록 목록이 길어집니다.")
+        rnote = QLabel("내 위치 주변의 쉼터만 불러와요. 넓힐수록 목록이 길어져요.")
         rnote.setObjectName("mute")
-        rnote.setFont(mono(9, QFont.Normal, 0.5))
+        rnote.setFont(ui_font(14))
         rnote.setWordWrap(True)
         body.addWidget(rnote)
         lay.addWidget(card)
 
         # 3.5 현재 위치 ---------------------------------------------------------
-        card, body = self._card("현재 위치", "target")
+        card, body = self._card("내 위치", "target")
         locdesc = QLabel(
-            "쉼터는 현재 위치를 기준으로 찾습니다. 자동 모드는 윈도우 위치 서비스"
-            "(GPS·Wi-Fi)를 사용하고, 실패하면 IP 기반 추정으로 대체합니다.\n"
-            "위치가 잡히지 않으면 Windows 설정 > 개인 정보 및 보안 > 위치 에서 "
-            "'앱이 사용자 위치에 액세스하도록 허용'을 켜주세요."
+            "내 위치를 기준으로 가까운 쉼터를 찾아요. 지도에서 오른쪽 클릭하면 내 위치를 직접 정할 수 있어요.\n"
+            "위치가 잡히지 않으면 Windows 설정 > 개인 정보 및 보안 > 위치 에서 위치 사용을 켜 주세요."
         )
         locdesc.setObjectName("dim")
         locdesc.setWordWrap(True)
@@ -150,16 +164,17 @@ class SettingsView(QWidget):
         body.addWidget(self.loc_combo)
 
         self.loc_value = QLabel("-")
-        self.loc_value.setFont(mono(10, QFont.DemiBold, 0.5))
+        self.loc_value.setFont(ui_font(15, QFont.DemiBold))
         body.addWidget(self.loc_value)
 
         self.loc_backend = QLabel("-")
         self.loc_backend.setObjectName("mute")
         self.loc_backend.setFont(mono(9, QFont.Normal, 0.5))
+        self.loc_backend.setVisible(False)     # 위치 백엔드 이름은 일반 사용자에게 의미가 없다
         body.addWidget(self.loc_backend)
 
         locrow = QHBoxLayout()
-        self.loc_btn = QPushButton("현재 위치 다시 확인")
+        self.loc_btn = QPushButton("내 위치 다시 찾기")
         self.loc_btn.setCursor(Qt.PointingHandCursor)
         self.loc_btn.clicked.connect(self._locate)
         locrow.addWidget(self.loc_btn)
@@ -170,8 +185,8 @@ class SettingsView(QWidget):
         # 4. 시각 -------------------------------------------------------------
         card, body = self._card("기준 시각", "clock")
         desc2 = QLabel(
-            "혼잡도 예측은 시각과 요일에 따라 달라집니다. "
-            "시뮬레이션 모드로 특정 시간대의 예측을 미리 확인할 수 있습니다."
+            "운영 여부와 민폐도는 시각·요일에 따라 달라집니다. "
+            "시뮬레이션 모드로 특정 시간대를 미리 확인할 수 있습니다."
         )
         desc2.setObjectName("dim")
         desc2.setWordWrap(True)
@@ -203,7 +218,7 @@ class SettingsView(QWidget):
         day_row.addWidget(self.day_combo)
         day_row.addStretch(1)
         body.addLayout(day_row)
-        lay.addWidget(card)
+        self.adv_lay.addWidget(card)
 
         # 4.5 API 키 -----------------------------------------------------------
         card, body = self._card("API 키", "gear")
@@ -238,7 +253,7 @@ class SettingsView(QWidget):
         krow.addWidget(self.key_save)
         krow.addWidget(self.key_msg, 1)
         body.addLayout(krow)
-        lay.addWidget(card)
+        self.adv_lay.addWidget(card)
 
         # 5. 데이터 출처 --------------------------------------------------------
         card, body = self._card("데이터 연동 상태", "layers")
@@ -263,7 +278,7 @@ class SettingsView(QWidget):
         btns.addWidget(clear_ai)
         btns.addStretch(1)
         body.addLayout(btns)
-        lay.addWidget(card)
+        self.adv_lay.addWidget(card)
 
         # 6. 정보 --------------------------------------------------------------
         card, body = self._card("CoolMap 정보", "info")
@@ -273,7 +288,6 @@ class SettingsView(QWidget):
             "· 날씨: 기상청 초단기실황·단기예보의 실측값입니다.\n"
             "· 민폐도: Gemini가 시설 성격·구매 필요 여부·좌석·공식 쉼터 지정 여부를 근거로 "
             "0~100으로 추정합니다. 측정값이 아닌 추정치이며, 키가 없으면 규칙 기반으로 계산합니다.\n"
-            "· 혼잡도: 실시간 인구 데이터 연동 전이라 비활성 상태입니다.\n"
             "· 쉼터: 행정안전부 재난안전데이터공유플랫폼을 사용합니다. "
             "냉방 모드는 무더위쉼터, 난방 모드는 한파쉼터입니다.\n"
             "· AI 추정 쉼터: 지도에 상호는 있으나 공식 목록에 없는 곳을 Gemini가 "
@@ -291,7 +305,28 @@ class SettingsView(QWidget):
         row.addWidget(reset)
         row.addStretch(1)
         body.addLayout(row)
-        lay.addWidget(card)
+        self.adv_lay.addWidget(card)
+
+        self.adv_btn = QPushButton("고급 설정 보기")
+        self.adv_btn.setCursor(Qt.PointingHandCursor)
+        self.adv_btn.setMinimumHeight(50)
+        self.adv_btn.setFont(ui_font(16, QFont.Bold))
+        self.adv_btn.clicked.connect(self._toggle_adv)
+        lay.addWidget(self.adv_btn)
+        lay.addWidget(self.adv)
+
+    def _toggle_adv(self) -> None:
+        show = self.adv.isHidden()
+        self.adv.setVisible(show)
+        self.adv_btn.setText("고급 설정 닫기" if show else "고급 설정 보기")
+        if show:
+            self._refresh_sources()
+
+    def _set_big_text(self, on: bool) -> None:
+        if self._loading:
+            return
+        self.state.set("big_text", on, silent=True)
+        self.big_note.setText("앱을 닫았다가 다시 켜면 적용돼요.")
 
     # ------------------------------------------------------------------
     def _card(self, title: str, icon: str) -> tuple[Card, QVBoxLayout]:
@@ -467,8 +502,6 @@ class SettingsView(QWidget):
         self.refresh()
 
     def _refresh_sources(self) -> None:
-        from ..ai import CROWD_ENABLED
-
         tiles = providers.tile_provider()
         weather = providers.weather_provider()
         ai = providers.nuisance_ai()
@@ -519,8 +552,6 @@ class SettingsView(QWidget):
             dot(ai.enabled, f"민폐도 — Gemini {ai.model}"
                             + ("" if ai.enabled else " (사용 불가 · 규칙 기반 사용)")),
             dot(cand_on, "AI 추정 쉼터 — " + cand_txt),
-            dot(CROWD_ENABLED, "혼잡도 — 실시간 인구 데이터 "
-                               + ("연동됨" if CROWD_ENABLED else "연동 예정 (Coming Soon)")),
         ]
         if sp.error:
             rows.append(
@@ -556,13 +587,14 @@ class SettingsView(QWidget):
         idx = self.marker_combo.findData(s.get("marker_style"))
         self.marker_combo.setCurrentIndex(max(0, idx))
         self.cb_labels.setChecked(bool(s.get("map_labels")))
-        self.cb_events.setChecked(bool(s.get("show_event_zones")))
         self.cb_closed.setChecked(bool(s.get("show_closed")))
         self.cb_anim.setChecked(bool(s.get("animations")))
         self.cool_slider.setValue(int(s.get("target_cool")))
         self.cool_slider.value_label.setText(f"{int(s.get('target_cool'))}°C")
         self.heat_slider.setValue(int(s.get("target_heat")))
         self.heat_slider.value_label.setText(f"{int(s.get('target_heat'))}°C")
+        self.cb_dark.setChecked(bool(s.get("dark_mode")))
+        self.cb_big.setChecked(bool(s.get("big_text")))
         self.cb_official.setChecked(bool(s.get("only_official")))
         self.cb_ai.setChecked(bool(s.get("ai_candidates")))
         self.walk_slider.setValue(int(s.get("max_walk")))
@@ -587,7 +619,9 @@ class SettingsView(QWidget):
 
         for name, (edit, lab) in self.key_edits.items():
             lab.setText(self._mask(secrets.get(name)))
-        self._refresh_sources()
+        # 데이터 상태는 타일 캐시 파일을 전부 훑어서 무겁다 — 고급 설정을 펼쳤을 때만 계산한다
+        if not self.adv.isHidden():
+            self._refresh_sources()
         self._loading = False
 
     def apply_palette(self, p: Palette) -> None:

@@ -15,29 +15,26 @@ import {
 } from "@maplibre/maplibre-react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { type Analysis, analysisDistance, type Prefer, rank, stayLabel } from "../../analysis";
-import { PlaceRow } from "../../components/PlaceCard";
-import { Icon, Pill } from "../../components/ui";
-import { openDirections } from "../../directions";
+import { type Analysis, rank } from "../../analysis";
+import { PlaceRow, TopCard } from "../../components/PlaceCard";
+import { Icon, T } from "../../components/ui";
 import { haversine } from "../../geo";
 import { loadMapStyle } from "../../mapStyle";
-import { categoryLabel } from "../../places";
+import { nearestFirst, SHELTER_WORD } from "../../plain";
 import { useStore } from "../../store";
-import { MODE_LABEL, type Mode, nuisanceColor, PALETTES } from "../../theme";
+import type { Mode } from "../../theme";
 
 // 지도를 이만큼 옮기면 '이 지역에서 다시 찾기' 를 띄운다
 const RESEARCH_DISTANCE_M = 800;
 const ME_COLOR = "#4C8DF6";
 
-const SORTS: [Prefer, string][] = [
-  ["balanced", "추천순"],
-  ["close", "가까운순"],
-  ["cool", "온도순"],
-  ["quiet", "조용한순"],
-  ["free", "눈치없는순"],
+type Sort = "near" | "best";
+const SORTS: [Sort, string][] = [
+  ["near", "가까운 순"],
+  ["best", "추천 순"],
 ];
 
 type CircleRadius = NonNullable<NonNullable<CircleLayerSpecification["paint"]>["circle-radius"]>;
@@ -90,18 +87,24 @@ export default function MapScreen() {
   const [mapStyle, setMapStyle] = useState<StyleSpecification | string | null>(null);
   const [mapCenter, setMapCenter] = useState<LngLat>(s.searchCenter);
   const [sheetHeight, setSheetHeight] = useState(0);
-  const [sort, setSort] = useState<Prefer>("balanced");
+  const [sort, setSort] = useState<Sort>("near");
   // 모드를 바꾸면 선택이 풀리도록 어느 모드에서 고른 것인지 함께 둔다
   const [selection, setSelection] = useState<{ id: string; mode: Mode } | null>(null);
   const [building, setBuilding] = useState<GeoJSON.FeatureCollection | null>(null);
   const selectedId = selection?.mode === mode ? selection.id : null;
   const setSelectedId = (id: string | null) => setSelection(id ? { id, mode } : null);
 
+  // 라이트/다크를 바꾸면 지도 스타일도 바꾼다
+  const dark = p.dark;
   useEffect(() => {
-    loadMapStyle().then(setMapStyle);
-  }, []);
+    let alive = true;
+    loadMapStyle(dark).then((style) => alive && setMapStyle(style));
+    return () => {
+      alive = false;
+    };
+  }, [dark]);
 
-  const ranked = useMemo(() => rank(s.analyses, sort), [s.analyses, sort]);
+  const ranked = useMemo(() => (sort === "near" ? nearestFirst(s.analyses) : rank(s.analyses)), [s.analyses, sort]);
   const selected = ranked.find((a) => a.place.id === selectedId) ?? null;
 
   const select = (a: Analysis) => {
@@ -156,7 +159,7 @@ export default function MapScreen() {
         type: "Feature",
         id: a.place.id,
         geometry: { type: "Point", coordinates: [a.place.lon, a.place.lat] },
-        properties: { id: a.place.id, name: a.place.name, open: a.crowd.openNow, ai: a.place.aiGuess },
+        properties: { id: a.place.id, name: a.place.name, open: a.openNow, ai: a.place.aiGuess },
       })),
     }),
     [ranked],
@@ -263,7 +266,7 @@ export default function MapScreen() {
               "text-field": ["get", "name"],
               // 스타일 서버(OpenFreeMap)에 있는 글꼴이어야 한다. 기본값(Open Sans)은 없어서 404 가 난다.
               "text-font": ["Noto Sans Regular"],
-              "text-size": 11,
+              "text-size": 13,
               "text-offset": [0, 1.3],
               "text-anchor": "top",
               "text-max-width": 9,
@@ -296,45 +299,33 @@ export default function MapScreen() {
         )}
       </Map>
 
-      {/* 상단: 모드 전환 · 기온 · 범례 */}
-      <View style={[styles.topBar, { top: insets.top + 8 }]}>
-        <View style={[styles.segment, { backgroundColor: p.card, borderColor: p.border }]}>
-          {(["cooling", "heating"] as Mode[]).map((m) => {
-            const on = m === mode;
-            return (
-              <Pressable
-                key={m}
-                onPress={() => s.update({ mode: m })}
-                style={[styles.segmentItem, on && { backgroundColor: PALETTES[m].accent }]}
-              >
-                <Text style={[styles.segmentText, { color: on ? PALETTES[m].accentInk : p.textDim }]}>{MODE_LABEL[m]}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
-        <View style={[styles.chip, { backgroundColor: p.card, borderColor: p.border }]}>
-          <Text style={[styles.chipText, { color: p.text }]}>
-            {s.weather.live ? `${s.weather.outdoor.toFixed(1)}°C` : "기온 —"}
-          </Text>
-        </View>
-      </View>
-      <View style={[styles.legend, { top: insets.top + 60, backgroundColor: p.card, borderColor: p.border }]}>
+      {/* 상단: 범례 */}
+      <View style={[styles.legend, { top: insets.top + 10, backgroundColor: p.card, borderColor: p.border }]}>
         <View style={[styles.dot, { backgroundColor: p.accent }]} />
-        <Text style={[styles.legendText, { color: p.textDim }]}>공식 쉼터</Text>
-        <View style={[styles.dot, { borderWidth: 2, borderColor: p.warn }]} />
-        <Text style={[styles.legendText, { color: p.textDim }]}>AI 추정</Text>
+        <T size={14} weight="600" color={p.text} style={styles.legendText}>
+          공식 쉼터
+        </T>
+        <View style={[styles.dot, { borderWidth: 2.5, borderColor: p.warn }]} />
+        <T size={14} weight="600" color={p.text} style={styles.legendText}>
+          AI 추정
+        </T>
         {s.aiLoading && <ActivityIndicator size="small" color={p.warn} />}
       </View>
 
       {(moved || !!s.locationNotice) && (
-        <View style={[styles.floatCenter, { top: insets.top + 100 }]}>
+        <View style={[styles.floatCenter, { top: insets.top + 62 }]}>
           {moved ? (
             <Pressable onPress={() => s.setSearchCenter(mapCenter)} style={[styles.pill, { backgroundColor: p.accent }]}>
-              <Text style={[styles.pillText, { color: p.accentInk }]}>이 지역에서 다시 찾기</Text>
+              <Icon name="magnify" size={20} color={p.accentInk} />
+              <T size={16} weight="800" color={p.accentInk}>
+                이 지역에서 다시 찾기
+              </T>
             </Pressable>
           ) : (
             <View style={[styles.pill, { backgroundColor: p.card, borderColor: p.border, borderWidth: 1 }]}>
-              <Text style={[styles.noticeText, { color: p.textDim }]}>{s.locationNotice}</Text>
+              <T size={14} color={p.textDim}>
+                {s.locationNotice}
+              </T>
             </View>
           )}
         </View>
@@ -343,9 +334,10 @@ export default function MapScreen() {
       {/* 내 위치 — 패널 밖에 두어야 Android 에서 눌린다 */}
       <Pressable
         onPress={locate}
+        accessibilityLabel="내 위치로"
         style={[styles.locateBtn, { bottom: sheetHeight + 12, backgroundColor: p.card, borderColor: p.border }]}
       >
-        <Icon name="crosshairs-gps" size={22} color={p.accent} />
+        <Icon name="crosshairs-gps" size={26} color={p.accent} />
       </Pressable>
 
       {/* 하단 패널 */}
@@ -354,8 +346,10 @@ export default function MapScreen() {
         style={[styles.sheet, { backgroundColor: p.card, borderColor: p.border }]}
       >
         {selected ? (
-          <Summary
+          <TopCard
             a={selected}
+            p={p}
+            onOpen={() => router.push({ pathname: "/place/[id]", params: { id: selected.place.id } })}
             onClose={() => {
               setSelectedId(null);
               setBuilding(null);
@@ -376,101 +370,58 @@ function NearbyList({
   onSelect,
 }: {
   ranked: Analysis[];
-  sort: Prefer;
-  setSort: (s: Prefer) => void;
+  sort: Sort;
+  setSort: (s: Sort) => void;
   onSelect: (a: Analysis) => void;
 }) {
   const s = useStore();
   const { p } = s;
-  const kind = s.mode === "heating" ? "한파쉼터" : "무더위쉼터";
-  const open = ranked.filter((a) => a.crowd.openNow).length;
+  const open = ranked.filter((a) => a.openNow).length;
 
   return (
     // 패널 높이(최대 48%)를 넘지 않게 줄어들어야 목록 끝까지 스크롤된다
     <View style={styles.shrink}>
       <View style={styles.listHead}>
-        <Text style={[styles.title, { color: p.text }]}>
-          주변 쉼터 {ranked.length}곳<Text style={{ color: p.good }}>  · 지금 열림 {open}</Text>
-        </Text>
+        <T size={19} weight="800" color={p.text} style={styles.fill}>
+          주변 쉼터 {ranked.length}곳
+          <T size={16} weight="700" color={open ? p.good : p.textMute}>
+            {"  "}지금 열림 {open}곳
+          </T>
+        </T>
         {s.loading && <ActivityIndicator color={p.accent} />}
       </View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.noShrink} contentContainerStyle={styles.sorts}>
+      <View style={styles.sorts}>
         {SORTS.map(([key, label]) => {
           const on = key === sort;
           return (
             <Pressable
               key={key}
               onPress={() => setSort(key)}
+              accessibilityState={{ selected: on }}
               style={[styles.sortChip, { borderColor: on ? p.accent : p.border, backgroundColor: on ? p.accentSoft : "transparent" }]}
             >
-              <Text style={[styles.sortText, { color: on ? p.accent : p.textDim }]}>{label}</Text>
+              <T size={15} weight="700" color={on ? p.accent : p.textDim}>
+                {label}
+              </T>
             </Pressable>
           );
         })}
-      </ScrollView>
+      </View>
       {s.error ? (
-        <Text style={[styles.dim, { color: p.bad }]}>쉼터 목록을 받지 못했습니다 ({s.error})</Text>
+        <T size={15} color={p.bad}>
+          쉼터 목록을 받지 못했어요. 인터넷 연결을 확인해 주세요.
+        </T>
       ) : !s.loading && !ranked.length ? (
-        <Text style={[styles.dim, { color: p.textDim }]}>
-          반경 {s.settings.searchRadius / 1000}km · 도보 {s.settings.maxWalk}분 안에 {kind}가 없습니다
-        </Text>
+        <T size={15} color={p.textDim}>
+          걸어서 {s.settings.maxWalk}분 안에 {SHELTER_WORD[s.mode]}가 없어요. 지도를 옮겨 다른 곳을 찾아보세요.
+        </T>
       ) : (
         <ScrollView style={styles.list} contentContainerStyle={styles.listEnd}>
           {ranked.slice(0, 40).map((a) => (
-            <PlaceRow key={a.place.id} a={a} p={p} selected={false} onPress={() => onSelect(a)} />
+            <PlaceRow key={a.place.id} a={a} p={p} onPress={() => onSelect(a)} />
           ))}
         </ScrollView>
       )}
-    </View>
-  );
-}
-
-/** 지도에서 선택한 장소의 요약 패널 (mapview.py 선택 패널) */
-function Summary({ a, onClose }: { a: Analysis; onClose: () => void }) {
-  const { p, here } = useStore();
-  const where = categoryLabel(a.place);
-  const nc = nuisanceColor(p, a.nuisance.key);
-  return (
-    <View>
-      <View style={styles.row}>
-        <Text style={[styles.title, styles.fill, { color: p.text }]} numberOfLines={2}>
-          {a.place.name}
-        </Text>
-        <Pressable onPress={onClose} hitSlop={12}>
-          <Icon name="close" size={22} color={p.textMute} />
-        </Pressable>
-      </View>
-      <Text style={[styles.dim, { color: p.textDim }]}>
-        {a.place.aiGuess ? `AI 추정 ${a.place.aiConfidence}% · ` : ""}
-        {where} · {analysisDistance(a)} · 건물 하이라이트
-      </Text>
-      <View style={styles.chips}>
-        <Pill
-          text={a.crowd.openNow ? `실내 ${Math.round(a.indoor)}°C` : "운영 종료"}
-          icon="thermometer"
-          color={a.crowd.openNow ? p.accent : p.textMute}
-          bg={p.cardAlt}
-        />
-        <Pill text={`쾌적 ${a.comfort}`} icon="creation" color={p.accent} bg={p.cardAlt} />
-        <Pill text={`민폐도 ${a.nuisance.score}`} icon="star" color={nc} bg={p.cardAlt} />
-        {a.place.official && <Pill text="공식 지정" icon="check-circle" color={p.good} bg={p.cardAlt} />}
-      </View>
-      <Text style={[styles.dim, { color: p.textDim, marginTop: 8 }]}>
-        {a.nuisance.level}
-        {"\n"}권장 체류 {stayLabel(a.nuisance.stayMinutes)} · 도보 {a.walkMin}분
-      </Text>
-      <View style={styles.actions}>
-        <Pressable
-          onPress={() => router.push({ pathname: "/place/[id]", params: { id: a.place.id } })}
-          style={[styles.primary, { backgroundColor: p.accent }]}
-        >
-          <Text style={[styles.pillText, { color: p.accentInk }]}>상세 보기</Text>
-        </Pressable>
-        <Pressable onPress={() => openDirections(a.place, here)} style={[styles.secondary, { borderColor: p.border }]}>
-          <Icon name="walk" size={18} color={p.text} />
-          <Text style={[styles.pillText, { color: p.text }]}>길찾기</Text>
-        </Pressable>
-      </View>
     </View>
   );
 }
@@ -479,19 +430,6 @@ const styles = StyleSheet.create({
   fill: { flex: 1 },
   center: { alignItems: "center", justifyContent: "center" },
   row: { flexDirection: "row", alignItems: "center" },
-  topBar: {
-    position: "absolute",
-    left: 16,
-    right: 16,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  segment: { flexDirection: "row", borderRadius: 20, borderWidth: 1, padding: 3 },
-  segmentItem: { paddingHorizontal: 18, paddingVertical: 7, borderRadius: 17 },
-  segmentText: { fontSize: 14, fontWeight: "700" },
-  chip: { borderRadius: 20, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 9 },
-  chipText: { fontSize: 14, fontWeight: "700" },
   legend: {
     position: "absolute",
     left: 16,
@@ -500,15 +438,13 @@ const styles = StyleSheet.create({
     gap: 6,
     borderRadius: 14,
     borderWidth: 1,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
   },
-  legendText: { fontSize: 11, fontWeight: "600", marginRight: 4 },
-  dot: { width: 10, height: 10, borderRadius: 5 },
+  legendText: { marginRight: 6 },
+  dot: { width: 13, height: 13, borderRadius: 7 },
   floatCenter: { position: "absolute", left: 16, right: 16, alignItems: "center" },
-  pill: { borderRadius: 20, paddingHorizontal: 16, paddingVertical: 9 },
-  pillText: { fontSize: 14, fontWeight: "700", textAlign: "center" },
-  noticeText: { fontSize: 13 },
+  pill: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 24, paddingHorizontal: 18, paddingVertical: 12 },
   sheet: {
     position: "absolute",
     left: 0,
@@ -525,32 +461,17 @@ const styles = StyleSheet.create({
   locateBtn: {
     position: "absolute",
     right: 16,
-    width: 46,
-    height: 46,
-    borderRadius: 23,
+    width: 54,
+    height: 54,
+    borderRadius: 27,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
   },
   listHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  title: { fontSize: 17, fontWeight: "800", marginBottom: 4 },
-  dim: { fontSize: 13 },
-  noShrink: { flexGrow: 0, flexShrink: 0 },
-  sorts: { gap: 6, paddingVertical: 6 },
-  sortChip: { borderWidth: 1, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 5 },
-  sortText: { fontSize: 12, fontWeight: "700" },
+  sorts: { flexDirection: "row", gap: 8, paddingVertical: 8 },
+  sortChip: { borderWidth: 1.5, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8 },
   shrink: { flexShrink: 1 },
   list: { marginTop: 4 },
   listEnd: { paddingBottom: 8 },
-  chips: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 10 },
-  actions: { flexDirection: "row", gap: 10, marginTop: 14 },
-  primary: { flex: 1, borderRadius: 12, paddingVertical: 12 },
-  secondary: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    borderRadius: 12,
-    borderWidth: 1,
-    paddingHorizontal: 16,
-  },
 });

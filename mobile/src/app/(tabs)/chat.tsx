@@ -1,229 +1,164 @@
-// AI 추천 화면 — coolmap/ui/chat.py (CoolMap Intelligence)
+// 물어보기 — 쉼터에 대해 말로 묻고 답을 듣는다 (coolmap/ui/chat.py).
+// 타자가 어려운 사람도 쓸 수 있게, 대화 끝에 '누르기만 하면 되는 질문' 을 늘 보여 준다.
 
 import { router } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import {
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { type Analysis, analysisDistance, clockLabel } from "../../analysis";
-import { type ChatReply, greeting, QUICK_PROMPTS, respond } from "../../assistant";
-import { Icon, RichText } from "../../components/ui";
-import { categoryIcon } from "../../places";
+import type { Analysis } from "../../analysis";
+import { type ChatReply, greeting, respond, suggestions } from "../../assistant";
+import { PlaceRow, TopCard } from "../../components/PlaceCard";
+import { Icon, RichText, T, useFontScale } from "../../components/ui";
 import { useStore } from "../../store";
-import { nuisanceColor } from "../../theme";
 
 type Message = { id: number; from: "user" | "ai"; text: string; reply?: ChatReply };
+
+const open = (a: Analysis) => router.push({ pathname: "/place/[id]", params: { id: a.place.id } });
 
 export default function Chat() {
   const insets = useSafeAreaInsets();
   const s = useStore();
   const { p, mode } = s;
+  const k = useFontScale();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const scroll = useRef<ScrollView>(null);
   const nextId = useRef(1);
+  // 새로 물은 질문. 그 말풍선이 자리를 잡으면 거기로 스크롤해 질문과 답의 첫 줄이 보이게 한다
+  // (맨 끝으로 내리면 답 문장이 장소 카드에 밀려 화면 위로 사라진다)
+  const askedId = useRef(0);
 
-  // 모드가 바뀌거나 쉼터 목록이 처음 준비되면 인사부터 다시
-  const ready = !s.loading && s.analyses.length > 0;
+  // 모드가 바뀌면 인사부터 다시
   useEffect(() => {
-    if (!ready) return;
-    const g = greeting(s.analyses, mode);
+    const g = greeting(mode, s.weather);
     setMessages([{ id: nextId.current++, from: "ai", text: g.text, reply: g }]);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 분석 결과가 바뀔 때마다 대화를 지우지 않는다
-  }, [mode, ready]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 날씨가 갱신될 때마다 대화를 지우지 않는다
+  }, [mode]);
 
   const ask = (q: string) => {
     const text = q.trim();
     if (!text) return;
-    const reply = respond(text, s.analyses, mode);
+    const reply = respond(text, s.analyses, mode, s.now, s.weather);
+    const userId = nextId.current++;
+    askedId.current = userId;
     setMessages((m) => [
       ...m,
-      { id: nextId.current++, from: "user", text },
+      { id: userId, from: "user", text },
       { id: nextId.current++, from: "ai", text: reply.text, reply },
     ]);
     setInput("");
-    setTimeout(() => scroll.current?.scrollToEnd({ animated: true }), 100);
   };
 
   return (
     <KeyboardAvoidingView
       // iOS 는 키보드가 화면 위에 덮이므로 그만큼 아래 여백을 넣어 입력창을 밀어 올린다
-      behavior={Platform.OS === "ios" ? "padding" : "height"} style={[styles.fill, { backgroundColor: p.bg }]}>
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      style={[styles.fill, { backgroundColor: p.bg }]}
+    >
       <View style={[styles.header, { paddingTop: insets.top + 12, borderColor: p.border, backgroundColor: p.panel }]}>
-        <View style={[styles.avatar, { borderColor: p.accent, backgroundColor: p.accentSoft }]}>
-          <Icon name="creation" size={22} color={p.accent} />
-        </View>
-        <View>
-          <Text style={[styles.title, { color: p.accent }]}>CoolMap Intelligence</Text>
-          <Text style={[styles.status, { color: p.textDim }]}>
-            <Text style={{ color: p.warn }}>●</Text> 실시간 열·이동 데이터 분석 중 · {clockLabel(s.now)}
-          </Text>
-        </View>
+        <T size={24} weight="800" color={p.text}>
+          물어보기
+        </T>
+        <T size={15} color={p.textDim}>
+          쉼터에 대해 궁금한 걸 물어보세요
+        </T>
       </View>
 
-      <ScrollView ref={scroll} contentContainerStyle={styles.messages}>
-        <Text style={[styles.today, { color: p.textMute }]}>TODAY</Text>
-        {!ready && (
-          <Text style={[styles.status, { color: p.textDim, textAlign: "center" }]}>
-            {s.error ? `쉼터 목록을 받지 못했습니다 (${s.error})` : "주변 쉼터를 분석하는 중…"}
-          </Text>
-        )}
+      <ScrollView
+        ref={scroll}
+        contentContainerStyle={styles.messages}
+      >
         {messages.map((m) =>
           m.from === "user" ? (
-            <View key={m.id} style={[styles.user, { backgroundColor: p.cardAlt, borderColor: p.border }]}>
-              <Text style={[styles.userText, { color: p.text }]}>{m.text}</Text>
+            <View
+              key={m.id}
+              style={[styles.user, { backgroundColor: p.accent }]}
+              onLayout={(e) => {
+                if (m.id !== askedId.current) return;
+                askedId.current = 0;
+                scroll.current?.scrollTo({ y: Math.max(0, e.nativeEvent.layout.y - 12), animated: true });
+              }}
+            >
+              <T size={17} weight="600" color={p.accentInk}>
+                {m.text}
+              </T>
             </View>
           ) : (
-            <View key={m.id} style={[styles.ai, { backgroundColor: p.card, borderColor: p.accentSoft }]}>
-              <RichText text={m.text} style={{ ...styles.aiText, color: p.text }} boldColor={p.accent} />
-              {m.reply?.places.map((a, i) =>
-                i === 0 ? <BigCard key={a.place.id} a={a} /> : <SmallCard key={a.place.id} a={a} />,
-              )}
-              {!!m.reply?.note && <Text style={[styles.note, { color: p.textMute }]}>{m.reply.note}</Text>}
+            <View key={m.id} style={[styles.ai, { backgroundColor: p.card, borderColor: p.border }]}>
+              <RichText
+                text={m.text}
+                style={{ fontSize: 17 * k, lineHeight: Math.round(17 * k * 1.5), color: p.text }}
+                boldColor={p.accent}
+              />
+              {m.reply?.places[0] && <TopCard a={m.reply.places[0]} p={p} onOpen={() => open(m.reply!.places[0])} />}
+              {m.reply?.places.slice(1).map((a) => (
+                <PlaceRow key={a.place.id} a={a} p={p} onPress={() => open(a)} />
+              ))}
             </View>
           ),
         )}
+
+        {/* 누르기만 하면 되는 질문 */}
+        <View style={styles.suggestions}>
+          {suggestions(mode).map((q) => (
+            <Pressable
+              key={q}
+              onPress={() => ask(q)}
+              style={({ pressed }) => [
+                styles.suggestion,
+                { borderColor: p.accent, backgroundColor: pressed ? p.accentSoft : p.card },
+              ]}
+            >
+              <T size={16} weight="700" color={p.accent}>
+                {q}
+              </T>
+            </Pressable>
+          ))}
+        </View>
       </ScrollView>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.noShrink} contentContainerStyle={styles.quick}>
-        {QUICK_PROMPTS.map(([label, prompt, icon]) => (
-          <Pressable
-            key={label}
-            onPress={() => ask(prompt)}
-            disabled={!ready}
-            style={[styles.quickChip, { borderColor: p.border, backgroundColor: p.card }]}
-          >
-            <Icon name={icon} size={15} color={p.accent} />
-            <Text style={[styles.quickText, { color: p.textDim }]}>{label}</Text>
-          </Pressable>
-        ))}
-      </ScrollView>
       <View style={[styles.inputRow, { borderColor: p.border, backgroundColor: p.card }]}>
         <TextInput
           value={input}
           onChangeText={setInput}
           onSubmitEditing={() => ask(input)}
-          placeholder="CoolMap AI에게 물어보세요… 예) 지금 조용하고 시원한 곳"
+          placeholder="예) 가장 가까운 쉼터는 어디야?"
           placeholderTextColor={p.textMute}
-          style={[styles.input, { color: p.text }]}
+          style={[styles.input, { color: p.text, fontSize: 17 * k }]}
           returnKeyType="send"
-          editable={ready}
         />
-        <Pressable onPress={() => ask(input)} style={[styles.send, { backgroundColor: p.accent }]} disabled={!ready}>
-          <Icon name="send" size={20} color={p.accentInk} />
+        <Pressable
+          onPress={() => ask(input)}
+          accessibilityLabel="보내기"
+          style={[styles.send, { backgroundColor: input.trim() ? p.accent : p.cardAlt }]}
+        >
+          <Icon name="send" size={24} color={input.trim() ? p.accentInk : p.textMute} />
         </Pressable>
       </View>
     </KeyboardAvoidingView>
   );
 }
 
-const open = (a: Analysis) => router.push({ pathname: "/place/[id]", params: { id: a.place.id } });
-
-/** 대화 안에 들어가는 장소 카드 */
-function BigCard({ a }: { a: Analysis }) {
-  const { p } = useStore();
-  const nc = nuisanceColor(p, a.nuisance.key);
-  const hours = a.place.alwaysOpen ? "24시간 운영" : `${a.place.openTo % 24}시까지 운영`;
-  return (
-    <Pressable onPress={() => open(a)} style={[styles.big, { backgroundColor: p.cardAlt, borderColor: p.border }]}>
-      <View style={styles.bigHead}>
-        <Icon name={categoryIcon(a.place)} size={28} color={p.accent} />
-        <View style={[styles.tempBadge, { backgroundColor: p.accent }]}>
-          <Icon name="thermometer" size={12} color={p.accentInk} />
-          <Text style={[styles.tempBadgeText, { color: p.accentInk }]}>{Math.round(a.indoor)}°C</Text>
-        </View>
-      </View>
-      <Text style={[styles.bigName, { color: p.text }]}>{a.place.name}</Text>
-      <Text style={[styles.note, { color: p.textDim }]}>
-        {a.place.aiGuess ? `AI 추정 ${a.place.aiConfidence}% · ` : ""}
-        {hours}
-      </Text>
-      <View style={styles.bigStats}>
-        <View style={styles.fill}>
-          <Text style={[styles.statLabel, { color: p.textMute }]}>NUISANCE</Text>
-          <Text style={[styles.statValue, { color: nc }]}>
-            ● {a.nuisance.score} · {a.nuisance.level}
-          </Text>
-        </View>
-        <View style={styles.fill}>
-          <Text style={[styles.statLabel, { color: p.textMute }]}>COMFORT</Text>
-          <Text style={[styles.statValue, { color: p.accent }]}>
-            ● {a.comfort >= 80 ? "매우 좋음" : a.comfort >= 60 ? "좋음" : "보통"} ({a.comfort})
-          </Text>
-        </View>
-      </View>
-    </Pressable>
-  );
-}
-
-function SmallCard({ a }: { a: Analysis }) {
-  const { p } = useStore();
-  return (
-    <Pressable onPress={() => open(a)} style={[styles.small, { backgroundColor: p.cardAlt, borderColor: p.border }]}>
-      <View style={[styles.smallIcon, { backgroundColor: p.card }]}>
-        <Icon name={categoryIcon(a.place)} size={18} color={p.textDim} />
-      </View>
-      <View style={styles.fill}>
-        <Text style={[styles.smallName, { color: p.text }]} numberOfLines={1}>
-          {a.place.name}
-        </Text>
-        <Text style={[styles.note, { color: p.textDim }]}>
-          {Math.round(a.indoor)}°C · {analysisDistance(a)} · 민폐도 {a.nuisance.score}
-        </Text>
-      </View>
-      <Icon name="chevron-right" size={20} color={p.textMute} />
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
   fill: { flex: 1 },
-  header: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: 1 },
-  avatar: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, alignItems: "center", justifyContent: "center" },
-  title: { fontSize: 19, fontWeight: "800" },
-  status: { fontSize: 12 },
+  header: { paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: 1, gap: 2 },
   messages: { padding: 16, gap: 14 },
-  today: { textAlign: "center", fontSize: 11, fontWeight: "700", letterSpacing: 2 },
-  user: { alignSelf: "flex-end", maxWidth: "85%", borderRadius: 16, borderWidth: 1, padding: 12 },
-  userText: { fontSize: 15 },
-  ai: { alignSelf: "flex-start", maxWidth: "95%", borderRadius: 16, borderWidth: 1, padding: 14, gap: 10 },
-  aiText: { fontSize: 15, lineHeight: 22 },
-  note: { fontSize: 12 },
-  big: { borderRadius: 14, borderWidth: 1, padding: 14, gap: 4 },
-  bigHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 4 },
-  tempBadge: { flexDirection: "row", alignItems: "center", gap: 3, borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3 },
-  tempBadgeText: { fontSize: 12, fontWeight: "800" },
-  bigName: { fontSize: 19, fontWeight: "800" },
-  bigStats: { flexDirection: "row", gap: 10, marginTop: 10 },
-  statLabel: { fontSize: 10, fontWeight: "700", letterSpacing: 1.5 },
-  statValue: { fontSize: 13, fontWeight: "700", marginTop: 2 },
-  small: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 14, borderWidth: 1, padding: 12 },
-  smallIcon: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
-  smallName: { fontSize: 15, fontWeight: "700" },
-  noShrink: { flexGrow: 0, flexShrink: 0 },
-  quick: { gap: 8, paddingHorizontal: 16, paddingVertical: 8 },
-  quickChip: { flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 18, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 7 },
-  quickText: { fontSize: 13, fontWeight: "600" },
+  user: { alignSelf: "flex-end", maxWidth: "85%", borderRadius: 18, paddingHorizontal: 14, paddingVertical: 10 },
+  ai: { alignSelf: "stretch", borderRadius: 18, borderWidth: 1, padding: 14, gap: 12 },
+  suggestions: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 },
+  suggestion: { borderWidth: 1.5, borderRadius: 22, paddingHorizontal: 14, paddingVertical: 10 },
   inputRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    marginHorizontal: 16,
+    marginHorizontal: 12,
     marginBottom: 12,
-    borderRadius: 18,
+    borderRadius: 20,
     borderWidth: 1,
     paddingLeft: 14,
     padding: 6,
   },
-  input: { flex: 1, fontSize: 14, paddingVertical: 8 },
-  send: { width: 44, height: 44, borderRadius: 14, alignItems: "center", justifyContent: "center" },
+  input: { flex: 1, paddingVertical: 10 },
+  send: { width: 52, height: 52, borderRadius: 16, alignItems: "center", justifyContent: "center" },
 });

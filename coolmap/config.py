@@ -31,10 +31,11 @@ DEFAULTS: dict = {
     "time_mode": "real",          # real | manual
     "manual_hour": 15,
     "manual_weekday": 5,
-    "show_event_zones": True,
     "show_closed": True,
     "map_labels": True,
     "animations": True,
+    "big_text": False,             # 글씨를 크게 (다시 켜면 적용)
+    "dark_mode": False,            # 기본은 라이트, 설정에서 다크로
     "only_official": False,
     "ai_candidates": True,        # 지도의 상호를 AI 로 판단해 추가 하이라이트
     "max_walk": 40,               # 분
@@ -53,6 +54,7 @@ def _settings_path() -> Path:
 
 class AppState(QObject):
     modeChanged = Signal(str)
+    themeChanged = Signal()        # 라이트 / 다크
     settingsChanged = Signal()
     favoritesChanged = Signal()
     clockChanged = Signal()
@@ -95,6 +97,8 @@ class AppState(QObject):
             return
         if key == "mode":
             self.modeChanged.emit(value)
+        elif key == "dark_mode":
+            self.themeChanged.emit()
         elif key in ("time_mode", "manual_hour", "manual_weekday"):
             self.clockChanged.emit()
             self.settingsChanged.emit()
@@ -115,7 +119,7 @@ class AppState(QObject):
 
     @property
     def palette(self) -> Palette:
-        return palette_for(self.mode)
+        return palette_for(self.mode, bool(self.get("dark_mode")))
 
     @property
     def target_temp(self) -> float:

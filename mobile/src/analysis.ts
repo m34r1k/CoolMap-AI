@@ -2,17 +2,13 @@
 //
 // - 민폐도: Gemini 결과가 있으면 그것, 없으면 규칙 기반
 // - 쾌적 점수: 온도/습도/공기흐름/공기질 가중 합
-// - 혼잡도(사람 수) 예측은 데스크톱과 같이 비활성 — 화면에는 'COMING SOON'
-//   (내부적으로는 민폐도 규칙·체감 온도 계산에 쓰이므로 시간대·요일·외기만으로 추정해 둔다)
 //
-// 행사(이벤트) 영향은 데스크톱에서도 데모 데이터라 옮기지 않았다.
+// 혼잡도(사람 수) 추정은 근거 데이터가 없어 넣지 않는다.
 
 import { distanceLabel, haversine, walkMinutes } from "./geo";
 import { getNuisance } from "./nuisance";
 import { closingIn, indoorTemp, isOpen, type Place } from "./places";
 import type { Mode } from "./theme";
-
-export const CROWD_ENABLED = false;
 
 export type Weather = {
   outdoor: number;
@@ -22,8 +18,6 @@ export type Weather = {
   alert: string;
   live: boolean; // 기상청 실측이면 true, 모의 곡선이면 false
 };
-
-export type Crowd = { ratio: number; openNow: boolean };
 
 export type Nuisance = {
   score: number;
@@ -40,7 +34,7 @@ export type Analysis = {
   place: Place;
   mode: Mode;
   weather: Weather;
-  crowd: Crowd;
+  openNow: boolean;
   nuisance: Nuisance;
   comfort: number;
   indoor: number;
@@ -132,59 +126,6 @@ function mockWeather(mode: Mode, n: Now): Weather {
   };
 }
 
-// -- 혼잡도 (비활성, 내부 계산용) ------------------------------------------------
-
-const PEAKS: Record<string, [number, number][]> = {
-  library: [[11, 0.7], [15, 1.0], [19, 0.72]],
-  dept: [[13, 0.72], [17, 1.0], [19, 0.82]],
-  underground: [[12, 0.85], [18, 1.0]],
-  subway: [[8, 1.0], [12, 0.5], [18, 1.0]],
-  gov: [[10, 0.92], [14, 1.0]],
-  bank: [[11, 1.0], [14, 0.78]],
-  cafe: [[9, 0.62], [14, 1.0], [20, 0.72]],
-  cinema: [[15, 0.62], [20, 1.0]],
-  market: [[11, 0.9], [17, 1.0]],
-  hospital: [[10, 1.0], [14, 0.82]],
-  mall: [[14, 0.82], [18, 1.0]],
-  center: [[10, 0.92], [14, 1.0]],
-  store: [[12, 0.78], [19, 1.0], [22, 0.66]],
-  bookstore: [[15, 0.88], [19, 1.0]],
-  museum: [[11, 0.7], [14, 1.0]],
-  park: [[7, 0.58], [19, 1.0]],
-};
-
-const WEEKEND: Record<string, number> = {
-  dept: 1.3, mall: 1.32, cinema: 1.34, market: 1.24, museum: 1.28, park: 1.3, underground: 1.12,
-  bookstore: 1.18, library: 1.1, cafe: 1.15, store: 1.05, hospital: 0.72, subway: 0.78,
-  gov: 0.1, bank: 0.1, center: 0.55,
-};
-
-function daypart(category: string, hour: number): number {
-  const peaks = PEAKS[category] ?? [[12, 1.0], [18, 0.8]];
-  const sigma = 2.7;
-  let val = 0;
-  for (const [ph, w] of peaks) {
-    const d = Math.min(Math.abs(hour - ph), 24 - Math.abs(hour - ph));
-    val = Math.max(val, w * Math.exp(-(d * d) / (2 * sigma * sigma)));
-  }
-  return 0.45 + val * 0.7;
-}
-
-function weatherPull(mode: Mode, w: Weather): number {
-  if (mode === "cooling") return 1.0 + Math.max(0, Math.min(0.52, (w.outdoor - 30.0) * 0.058));
-  return 1.0 + Math.max(0, Math.min(0.52, -w.outdoor * 0.048));
-}
-
-function predictCrowd(p: Place, mode: Mode, n: Now, w: Weather): Crowd {
-  const openNow = isOpen(p, n.hour, n.weekday);
-  if (!openNow) return { ratio: 0, openNow };
-  let pull = weatherPull(mode, w);
-  if (p.category === "park" && mode === "cooling" && w.outdoor >= 35) pull *= 0.78;
-  const week = n.weekday >= 5 ? (WEEKEND[p.category] ?? 1.0) : 1.0;
-  const ratio = p.baseCrowd * daypart(p.category, n.hour) * pull * week;
-  return { ratio: Math.max(0.02, Math.min(1.0, ratio)), openNow };
-}
-
 // -- 민폐도 ----------------------------------------------------------------------
 
 const NUISANCE_LEVELS: [number, string, string][] = [
@@ -206,7 +147,7 @@ const BASE_STAY: Record<string, number> = {
 };
 
 /** 규칙 기반 민폐도: 높을수록 '오래 있으면 눈치 보이는' 장소 */
-function scoreNuisance(p: Place, crowd: Crowd, n: Now): Nuisance {
+function scoreNuisance(p: Place, n: Now): Nuisance {
   const factors: [string, number][] = [];
   let score = 18;
   if (p.purchaseRequired) {
@@ -217,11 +158,6 @@ function scoreNuisance(p: Place, crowd: Crowd, n: Now): Nuisance {
   if (press) {
     score += press;
     factors.push(["직원·주변 시선", press]);
-  }
-  const crowdPen = Math.round(Math.max(0, crowd.ratio - 0.45) * 74);
-  if (crowdPen) {
-    score += crowdPen;
-    factors.push(["현재 혼잡도", crowdPen]);
   }
   if (p.seats < 30) {
     score += 13;
@@ -246,14 +182,13 @@ function scoreNuisance(p: Place, crowd: Crowd, n: Now): Nuisance {
   score = Math.trunc(Math.max(3, Math.min(97, Math.round(score))));
   const [level, key] = nuisanceLevel(score);
 
-  let stay = (BASE_STAY[p.category] ?? 60) * (1 - score / 165.0) * (1.15 - crowd.ratio * 0.5);
+  let stay = (BASE_STAY[p.category] ?? 60) * (1 - score / 165.0);
   stay = Math.trunc(Math.max(10, Math.round(stay / 5) * 5));
   if (remain !== null) stay = Math.min(stay, Math.max(10, remain));
 
   const tips: string[] = [];
   if (p.official) tips.push("공식 지정 쉼터입니다. 눈치 보지 말고 이용하세요.");
   if (p.purchaseRequired) tips.push("음료 1잔 주문 후 이용하면 부담이 크게 줄어요.");
-  if (crowd.ratio >= 0.7) tips.push("좌석 경쟁이 심한 시간대예요. 1인석 위주로 찾아보세요.");
   if (p.staffPressure >= 0.5) tips.push("직원 동선을 피해 창가·구석 좌석을 이용하는 편이 좋아요.");
   if (p.quiet >= 0.75) tips.push("정숙이 요구되는 공간이에요. 통화는 로비에서 하세요.");
   if (remain !== null && remain <= 45) tips.push(`마감까지 약 ${remain}분 남았어요.`);
@@ -281,7 +216,7 @@ function aiNuisance(p: Place, mode: Mode, fallback: Nuisance): Nuisance {
 
 // -- 쾌적 점수 ----------------------------------------------------------------------
 
-function comfortScore(p: Place, mode: Mode, w: Weather, crowd: Crowd, target: number): number {
+function comfortScore(p: Place, mode: Mode, w: Weather, openNow: boolean, target: number): number {
   const indoor = indoorTemp(p, mode);
   const diff = indoor - target;
   // 냉방: 목표보다 시원한 것은 관대하게, 더운 것은 엄격하게 감점 (난방은 반대)
@@ -292,14 +227,13 @@ function comfortScore(p: Place, mode: Mode, w: Weather, crowd: Crowd, target: nu
   const humidS = 100 - Math.abs(p.humidity - 45) * 2.2;
   const airS = ({ 우수: 96, 양호: 76, 보통: 56 } as Record<string, number>)[p.airflow] ?? 66;
   const aqiS = 100 - p.aqi * 1.5;
-  // 혼잡도 비활성 — 해당 가중치를 제외하고 정규화
   let total = (tempS * 0.32 + airS * 0.14 + humidS * 0.13 + aqiS * 0.15) / 0.74;
   // 외기와의 격차 보너스 (쉼터로서의 가치)
   total +=
     mode === "cooling"
       ? Math.max(0, Math.min(5, (w.outdoor - indoor) * 0.42))
       : Math.max(0, Math.min(5, (indoor - w.outdoor) * 0.16));
-  if (!crowd.openNow) total *= 0.55;
+  if (!openNow) total *= 0.55;
   return Math.trunc(Math.max(0, Math.min(100, Math.round(total))));
 }
 
@@ -311,19 +245,18 @@ export function analyze(
   origin: [number, number], // [lon, lat]
   weather: Weather,
 ): Analysis {
-  const crowd = predictCrowd(p, mode, n, weather);
-  const nuisance = aiNuisance(p, mode, scoreNuisance(p, crowd, n));
-  const comfort = comfortScore(p, mode, weather, crowd, target);
+  const openNow = isOpen(p, n.hour, n.weekday);
+  const nuisance = aiNuisance(p, mode, scoreNuisance(p, n));
+  const comfort = comfortScore(p, mode, weather, openNow, target);
   const indoor = indoorTemp(p, mode);
-  // 실내 체감: 혼잡할수록 체감 온도가 올라간다(냉방)/내려간다(난방)
-  const feels =
-    mode === "cooling" ? indoor + crowd.ratio * 2.4 + (p.humidity - 45) * 0.04 : indoor - crowd.ratio * 0.6 + 0.4;
+  // 실내 체감: 습할수록 덥게(냉방), 난방은 약간 따뜻하게 느낀다
+  const feels = mode === "cooling" ? indoor + (p.humidity - 45) * 0.04 : indoor + 0.4;
   const meters = haversine(origin[1], origin[0], p.lat, p.lon);
   return {
     place: p,
     mode,
     weather,
-    crowd,
+    openNow,
     nuisance,
     comfort,
     indoor,
@@ -342,7 +275,7 @@ export function rank(analyses: Analysis[], prefer: Prefer = "balanced"): Analysi
     let s = a.comfort;
     s -= a.nuisance.score * 0.35;
     s -= Math.min(a.walkMin, 40) * 0.55;
-    if (!a.crowd.openNow) s -= 60;
+    if (!a.openNow) s -= 60;
     if (prefer === "cool") {
       s += (a.weather.outdoor - a.indoor) * (a.mode === "cooling" ? 1.4 : 0);
       s += (a.indoor - a.weather.outdoor) * (a.mode === "heating" ? 0.5 : 0);

@@ -11,20 +11,19 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QPushButton,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 
-from .. import providers
+from .. import icons, providers
 from ..config import AppState
 from ..catalog import all_names, find_by_id
-from ..models import COOLING
 from ..theme import build_qss
 from .chat import ChatView
-from .common import IconButton, IconLabel, Pill, apply_palette_tree, mono
+from .common import IconLabel, apply_palette_tree, ui_font
 from .detail import DetailView
-from .favorites import FavoritesView
 from .home import HomeView
 from .mapview import MapView
 from .settings_view import SettingsView
@@ -41,10 +40,15 @@ def app_icon(size: int = 64) -> QIcon:
 
 
 class TopBar(QFrame):
+    """장소 검색 · 지금 상태(위치 확인 중 등) · 내 위치 다시 찾기.
+
+    더위/추위 전환은 홈에, 공식 쉼터만 보기 같은 필터는 설정에 있다 (같은 버튼을 여러 곳에 두지 않는다).
+    """
+
     def __init__(self, state: AppState, window: "MainWindow", parent: QWidget | None = None):
         super().__init__(parent)
         self.setObjectName("topbar")
-        self.setFixedHeight(72)
+        self.setFixedHeight(76)
         self.state = state
         self.window_ref = window
 
@@ -54,11 +58,12 @@ class TopBar(QFrame):
 
         self.search = QLineEdit()
         self.search.setObjectName("search")
-        self.search.setPlaceholderText("장소 검색…  (예: 도서관, 지하상가, 주민센터)")
+        self.search.setPlaceholderText("쉼터 이름으로 찾기  (예: 도서관, 주민센터)")
         self.search.setMaximumWidth(560)
-        self.search.setMinimumHeight(42)
-        self.search_icon = IconLabel("search", 17, "#63788E", 2.0, self.search)
-        self.search_icon.move(14, 13)
+        self.search.setMinimumHeight(46)
+        self.search.setFont(ui_font(16))
+        self.search_icon = IconLabel("search", 18, "#63788E", 2.0, self.search)
+        self.search_icon.move(14, 14)
         self.search.returnPressed.connect(self._search)
 
         self.completer_model = all_names()
@@ -69,44 +74,29 @@ class TopBar(QFrame):
         self.search.setCompleter(completer)
         lay.addWidget(self.search, 1)
 
-        self.mode_pill = Pill("냉방 모드", "snow", style="solid")
-        lay.addWidget(self.mode_pill)
+        self.status = QLabel("")
+        self.status.setFont(ui_font(15))
+        lay.addWidget(self.status)
 
-        self.clock = QLabel("")
-        self.clock.setObjectName("mute")
-        self.clock.setFont(mono(10, QFont.DemiBold, 0.6))
-        lay.addWidget(self.clock)
-
-        self.filter_btn = IconButton("filter", 40, 18, tooltip="공식 지정 쉼터만 보기")
-        self.filter_btn.clicked.connect(self._toggle_official)
-        lay.addWidget(self.filter_btn)
-
-        self.locate_btn = IconButton("target", 40, 18, tooltip="현재 위치 다시 확인")
+        self.locate_btn = QPushButton("  내 위치 다시 찾기")
+        self.locate_btn.setCursor(Qt.PointingHandCursor)
+        self.locate_btn.setMinimumHeight(46)
+        self.locate_btn.setFont(ui_font(15, QFont.Bold))
         self.locate_btn.clicked.connect(lambda: window.locate_now())
         lay.addWidget(self.locate_btn)
-
-        self.mode_btn = IconButton("flame", 40, 18, tooltip="난방 모드로 전환")
-        self.mode_btn.clicked.connect(state.toggle_mode)
-        lay.addWidget(self.mode_btn)
 
         self._notice = QTimer(self)
         self._notice.setSingleShot(True)
         self._notice.timeout.connect(lambda: self.refresh())
 
     def set_locating(self, on: bool) -> None:
-        p = self.state.palette
         self.locate_btn.setEnabled(not on)
-        self.locate_btn.set_color(p.warn if on else p.text_dim)
-        self.locate_btn.setToolTip("위치 확인 중…" if on else "현재 위치 다시 확인")
         if on:
-            self.clock.setText("위치 확인 중…")
+            self.status.setText("내 위치를 찾는 중…")
 
     def show_notice(self, text: str) -> None:
-        self.clock.setText(text)
+        self.status.setText(text)
         self._notice.start(6000)
-
-    def _toggle_official(self) -> None:
-        self.state.set("only_official", not self.state.get("only_official"))
 
     def _search(self) -> None:
         text = self.search.text().strip()
@@ -121,33 +111,18 @@ class TopBar(QFrame):
         if match is None:
             match = next((p for p in pool
                           if low in p.category_label or low in p.address.lower()), None)
+        self.search.clear()
         if match:
-            self.search.clear()
             self.window_ref.open_place(match.id)
         else:
-            self.search.clear()
-            self.search.setPlaceholderText(f"'{text}' 검색 결과가 없습니다")
+            self.search.setPlaceholderText(f"'{text}' 을(를) 찾지 못했어요")
 
     def refresh(self) -> None:
         p = self.state.palette
-        self.mode_pill.set_text("냉방 모드" if self.state.mode == COOLING else "난방 모드")
-        self.mode_pill.set_icon("snow" if self.state.mode == COOLING else "flame")
-        self.mode_pill.set_colors(p.accent, p.accent_ink)
-        self.mode_pill.adjustSize()
-        acc = self.state.origin_accuracy
-        acc_txt = f" ±{int(acc)}m" if acc and acc > 0 else ""
-        self.clock.setText(f"{self.state.clock_label()}  ·  내 위치{acc_txt}")
-        self.locate_btn.set_color(p.text_dim)
-        on = bool(self.state.get("only_official"))
-        self.filter_btn.set_color(p.accent if on else p.text_dim)
-        self.filter_btn.setToolTip(
-            "공식 지정 쉼터만 보기 (켜짐)" if on else "공식 지정 쉼터만 보기 (꺼짐)"
-        )
-        # 버튼은 '전환하면 될 모드'를 보여준다
-        cooling = self.state.mode == COOLING
-        self.mode_btn.set_icon_name("flame" if cooling else "snow")
-        self.mode_btn.set_color(p.accent)
-        self.mode_btn.setToolTip("난방 모드로 전환" if cooling else "냉방 모드로 전환")
+        if not self._notice.isActive():
+            self.status.setText("")
+        self.status.setStyleSheet(f"color: {p.text_dim};")
+        self.locate_btn.setIcon(icons.qicon("target", 20, p.accent))
         self.search_icon.set_color(p.text_mute)
 
 
@@ -185,7 +160,6 @@ class MainWindow(QMainWindow):
         # 페이지 ------------------------------------------------------------
         self.home = HomeView(state)
         self.map_view = MapView(state)
-        self.favorites = FavoritesView(state)
         self.chat = ChatView(state)
         self.settings = SettingsView(state)
         self.detail = DetailView(state)
@@ -193,7 +167,6 @@ class MainWindow(QMainWindow):
         self.pages = {
             "home": self.home,
             "map": self.map_view,
-            "favorites": self.favorites,
             "ai": self.chat,
             "settings": self.settings,
         }
@@ -209,21 +182,23 @@ class MainWindow(QMainWindow):
         self.map_view.openPlace.connect(self.open_place)
         self.map_view.locateRequested.connect(self.locate_now)
         self.map_view.originPicked.connect(self._on_origin_picked)
-        self.favorites.openPlace.connect(self.open_place)
         self.chat.openPlace.connect(self.open_place)
         self.detail.back.connect(self._back)
         self.detail.showOnMap.connect(self._show_on_map)
         self.settings.changed.connect(self.refresh_all)
 
         state.modeChanged.connect(self._on_mode_changed)
+        state.themeChanged.connect(self._on_theme_changed)
         state.settingsChanged.connect(self.refresh_all)
         state.favoritesChanged.connect(self.refresh_all)
 
         # 외부 데이터 준비 (백그라운드)
         self.nuisance_ai = providers.nuisance_ai()
         self.weather = providers.weather_provider()
-        self.shelters = providers.shelter_provider(state.mode)
-        self.shelters.ready.connect(self._on_shelters)
+        # 모드마다 쉼터 제공자가 따로 있다. ready 신호는 제공자마다 딱 한 번만 연결한다
+        # (전에는 데이터 준비 때마다 다시 연결해서, 신호 한 번에 갱신이 수십 번 돌았다)
+        self._watched: set[int] = set()
+        self.shelters = self._watch_shelters(state.mode)
         self.location = providers.location_provider()
         self.location.located.connect(self._on_located)
         self.location.failed.connect(self._on_locate_failed)
@@ -239,6 +214,10 @@ class MainWindow(QMainWindow):
         self._ai_refresh = QTimer(self)
         self._ai_refresh.setSingleShot(True)
         self._ai_refresh.timeout.connect(self.refresh_current)
+        # 짧은 시간에 몰려오는 갱신 요청(설정 · 위치 · 쉼터 도착)을 한 번으로 합친다
+        self._refresh_soon = QTimer(self)
+        self._refresh_soon.setSingleShot(True)
+        self._refresh_soon.timeout.connect(self._do_refresh_all)
 
         self._clock = QTimer(self)
         self._clock.timeout.connect(self._tick_clock)
@@ -253,24 +232,35 @@ class MainWindow(QMainWindow):
         self.setStyleSheet(build_qss(p))
         apply_palette_tree(self, p)
 
+    def _on_theme_changed(self) -> None:
+        self.apply_theme()
+        self.refresh_all()
+
     def _on_mode_changed(self, _mode: str) -> None:
         self.apply_theme()
         self.refresh_all()
         QTimer.singleShot(50, self._warm_providers)
 
+    def _watch_shelters(self, mode: str):
+        sp = providers.shelter_provider(mode)
+        if id(sp) not in self._watched:
+            self._watched.add(id(sp))
+            sp.ready.connect(self._on_shelters)
+        return sp
+
     def _warm_providers(self) -> None:
-        """민폐도·날씨를 미리 받아둔다 (UI 블로킹 없음)."""
+        """날씨 · 쉼터 목록 · 민폐도를 미리 받아둔다 (UI 블로킹 없음)."""
+        self.weather.observation(*self.state.origin)
+        # 현재 모드의 쉼터 데이터셋을 동기화한다 (냉방=무더위 / 난방=한파).
+        # 오래됐을 때만 받고, 실패하면 제공자가 몇 분 쉬었다가 다시 시도한다.
+        self.shelters = self._watch_shelters(self.state.mode)
+        self.shelters.sync()
+        self._warm_nuisance()
+
+    def _warm_nuisance(self) -> None:
+        # 민폐도는 '시설 유형' 단위로 캐시되므로 근처 목록만 예열해도 대부분 채워진다
         from ..catalog import places_for
 
-        self.weather.observation(*self.state.origin)
-        # 현재 모드의 쉼터 데이터셋을 동기화한다 (냉방=무더위 / 난방=한파)
-        self.shelters = providers.shelter_provider(self.state.mode)
-        try:
-            self.shelters.ready.connect(self._on_shelters)
-        except (RuntimeError, TypeError):
-            pass
-        self.shelters.sync()
-        # 민폐도는 '시설 유형' 단위로 캐시되므로 근처 목록만 예열해도 대부분 채워진다
         self.nuisance_ai.warm(
             places_for(self.state.mode,
                        radius_m=float(self.state.get("search_radius"))),
@@ -292,7 +282,7 @@ class MainWindow(QMainWindow):
         """
         if self.state.get("location_mode") != "auto":
             self.state.set("location_mode", "auto", silent=True)
-            self.topbar.show_notice("자동 위치 확인으로 전환합니다…")
+            self.topbar.show_notice("자동으로 위치를 찾을게요…")
         self.topbar.set_locating(True)
         self.location.request()
 
@@ -300,7 +290,7 @@ class MainWindow(QMainWindow):
         """지도 우클릭 — 현재 위치를 수동 지정한다."""
         self.state.set("location_mode", "manual", silent=True)
         self.state.set_origin(lat, lon, "지도에서 직접 지정", -1.0)
-        self.topbar.show_notice("현재 위치를 지도에서 지정했습니다 (수동 모드)")
+        self.topbar.show_notice("지도에서 고른 곳을 내 위치로 정했어요")
 
     def _on_located(self, lat: float, lon: float, accuracy: float, source: str) -> None:
         self.topbar.set_locating(False)
@@ -308,18 +298,21 @@ class MainWindow(QMainWindow):
 
     def _on_locate_failed(self, msg: str) -> None:
         self.topbar.set_locating(False)
-        self.topbar.show_notice(f"위치 확인 실패 — {msg}")
+        self.topbar.show_notice(f"위치를 찾지 못했어요 — {msg}")
 
     def _on_origin_changed(self) -> None:
         self.map_view.canvas._user_moved = False
-        self.home.preview.canvas._user_moved = False
         self.refresh_all()
         QTimer.singleShot(150, self._warm_providers)
 
     def _on_shelters(self) -> None:
-        """쉼터 실데이터가 도착하면 목록을 다시 만든다."""
+        """쉼터 실데이터가 도착하면 목록을 다시 만든다.
+
+        여기서 쉼터 동기화(_warm_providers)를 다시 부르면 안 된다 — 받기가 덜 끝났을 때
+        '도착 → 다시 받기 → 도착' 이 끝없이 돌아 앱이 멈춘다.
+        """
         self.refresh_all()
-        QTimer.singleShot(100, self._warm_providers)
+        QTimer.singleShot(100, self._warm_nuisance)
 
     def _tick_clock(self) -> None:
         self.topbar.refresh()
@@ -363,10 +356,10 @@ class MainWindow(QMainWindow):
         super().closeEvent(ev)
 
     def refresh_all(self) -> None:
-        for w in list(self.pages.values()) + [self.detail]:
-            fn = getattr(w, "refresh", None)
-            if callable(fn):
-                fn()
-        self.settings.refresh()
-        self.topbar.refresh()
+        """데이터나 설정이 바뀌었을 때. 바로 하지 않고 잠깐 모았다가 한 번만 한다."""
+        self._refresh_soon.start(120)
+
+    def _do_refresh_all(self) -> None:
+        # 지금 보이는 화면만 다시 그린다. 다른 화면은 들어갈 때(navigate) 다시 그린다.
+        self.refresh_current()
         self.sidebar.apply_palette(self.state.palette)

@@ -12,7 +12,7 @@ function Root() {
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="place/[id]" options={{ animation: "slide_from_right" }} />
       </Stack>
-      <StatusBar style="light" />
+      <StatusBar style={p.dark ? "light" : "dark"} />
     </>
   );
 }

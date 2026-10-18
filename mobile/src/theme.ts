@@ -1,9 +1,11 @@
-// 냉방·난방 테마. coolmap/theme.py 의 팔레트와 같은 값이다.
+// 냉방·난방 × 라이트·다크 테마. coolmap/theme.py 의 팔레트와 같은 값이다.
+// 기본은 라이트, 다크는 설정에서 켠다.
 
 export type Mode = "cooling" | "heating";
 
 export type Palette = {
   key: Mode;
+  dark: boolean;
   label: string;
   tagline: string;
   accent: string;
@@ -26,9 +28,10 @@ export type Palette = {
   bad: string;
 };
 
-export const PALETTES: Record<Mode, Palette> = {
+const DARK_PALETTES: Record<Mode, Palette> = {
   cooling: {
     key: "cooling",
+    dark: true,
     label: "냉방 모드",
     tagline: "폭염 대응 · 시원한 쉼터를 찾습니다",
     accent: "#22D3EE",
@@ -52,6 +55,7 @@ export const PALETTES: Record<Mode, Palette> = {
   },
   heating: {
     key: "heating",
+    dark: true,
     label: "난방 모드",
     tagline: "한파 대응 · 따뜻한 쉼터를 찾습니다",
     accent: "#FF7043",
@@ -74,6 +78,61 @@ export const PALETTES: Record<Mode, Palette> = {
     bad: "#FF6B6B",
   },
 };
+
+const LIGHT_PALETTES: Record<Mode, Palette> = {
+  cooling: {
+    key: "cooling",
+    dark: false,
+    label: "냉방 모드",
+    tagline: "폭염 대응 · 시원한 쉼터를 찾습니다",
+    accent: "#0284C7",
+    accentBright: "#0EA5E9",
+    accentDeep: "#075985",
+    accentInk: "#FFFFFF",
+    accentSoft: "#E0F2FE",
+    bg: "#F3F6F9",
+    panel: "#FFFFFF",
+    card: "#FFFFFF",
+    cardAlt: "#EEF3F8",
+    hover: "#E4ECF4",
+    border: "#CFDAE5",
+    borderSoft: "#E1E8EF",
+    text: "#0F1B2A",
+    textDim: "#45576B",
+    textMute: "#76889B",
+    good: "#047857",
+    warn: "#B45309",
+    bad: "#DC2626",
+  },
+  heating: {
+    key: "heating",
+    dark: false,
+    label: "난방 모드",
+    tagline: "한파 대응 · 따뜻한 쉼터를 찾습니다",
+    accent: "#DC4A16",
+    accentBright: "#F2672F",
+    accentDeep: "#9A3412",
+    accentInk: "#FFFFFF",
+    accentSoft: "#FDEBE3",
+    bg: "#FAF6F4",
+    panel: "#FFFFFF",
+    card: "#FFFFFF",
+    cardAlt: "#F6EFEC",
+    hover: "#F0E5E1",
+    border: "#E6D5CF",
+    borderSoft: "#EFE5E1",
+    text: "#2A1512",
+    textDim: "#6B4D46",
+    textMute: "#9A7E76",
+    good: "#3F7F2F",
+    warn: "#B45309",
+    bad: "#D12F2F",
+  },
+};
+
+export function paletteFor(mode: Mode, dark: boolean): Palette {
+  return (dark ? DARK_PALETTES : LIGHT_PALETTES)[mode];
+}
 
 export const MODE_LABEL: Record<Mode, string> = { cooling: "냉방", heating: "난방" };
 

@@ -1,12 +1,13 @@
-// 설정 화면 — coolmap/ui/settings_view.py 에서 모바일에 맞는 항목만.
+// 설정 — 자주 바꾸는 것(글씨 크기 · 쉼터 찾기 · 내 위치 · 업데이트)만 먼저 보이고,
+// 목표 온도 · 데이터 상태 · 캐시는 '고급 설정' 을 펼쳐야 보인다. (coolmap/ui/settings_view.py)
 
 import Constants from "expo-constants";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
+import { Alert, Platform, Pressable, ScrollView, StyleSheet, Switch, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { clearCandidateCache, judgeStats, MIN_CONFIDENCE } from "../../candidates";
-import { Card, Icon } from "../../components/ui";
+import { BigButton, Card, Icon, T } from "../../components/ui";
 import { clearNuisanceCache, nuisanceStatus } from "../../nuisance";
 import { useStore } from "../../store";
 import type { Palette } from "../../theme";
@@ -16,135 +17,178 @@ export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const s = useStore();
   const { p, settings } = s;
+  const [advanced, setAdvanced] = useState(false);
+
+  return (
+    <ScrollView style={{ backgroundColor: p.bg }} contentContainerStyle={[styles.page, { paddingTop: insets.top + 16 }]}>
+      <T size={28} weight="800" color={p.text}>
+        설정
+      </T>
+
+      <Section p={p} title="보기">
+        <Toggle p={p} label="다크 모드" desc="어두운 화면으로 보여 줘요" value={settings.darkMode}
+          onChange={(v) => s.update({ darkMode: v })} />
+        <Toggle p={p} label="큰 글씨" desc="모든 글씨를 크게 보여 줘요" value={settings.bigText}
+          onChange={(v) => s.update({ bigText: v })} />
+      </Section>
+
+      <Section p={p} title="쉼터 찾기">
+        <Toggle p={p} label="공식 쉼터만 보기" desc="정부가 지정한 무더위·한파 쉼터만 보여 줘요"
+          value={settings.onlyOfficial} onChange={(v) => s.update({ onlyOfficial: v })} />
+        <Toggle p={p} label="AI 추정 쉼터도 보기"
+          desc="도서관·마트처럼 쉼터로 등록되진 않았지만 쉬어 갈 만한 곳을 AI가 골라 함께 보여 줘요. 운영 여부는 현장에서 확인하세요."
+          value={settings.aiCandidates} onChange={(v) => s.update({ aiCandidates: v })} />
+        <Stepper p={p} label="걸어서 최대" value={settings.maxWalk} unit="분" min={5} max={60} step={5}
+          onChange={(v) => s.update({ maxWalk: v })} />
+        <Stepper p={p} label="찾는 범위" value={settings.searchRadius / 1000} unit="km" min={1} max={5} step={0.5}
+          onChange={(v) => s.update({ searchRadius: Math.round(v * 1000) })} />
+      </Section>
+
+      <Section p={p} title="내 위치">
+        <T size={16} color={s.located ? p.text : p.warn}>
+          {s.located ? "내 위치를 찾았어요" : "내 위치를 찾지 못했어요 (서울시청 기준으로 보여 줘요)"}
+        </T>
+        {!!s.locationNotice && (
+          <T size={15} color={p.warn}>
+            {s.locationNotice}
+          </T>
+        )}
+        <BigButton p={p} icon="crosshairs-gps" text="내 위치 다시 찾기" kind="secondary" onPress={() => s.locate()} />
+      </Section>
+
+      {updatesSupported && <UpdateSection p={p} />}
+
+      <Pressable onPress={() => setAdvanced(!advanced)} style={[styles.more, { borderColor: p.border }]}>
+        <T size={17} weight="700" color={p.textDim} style={{ flex: 1 }}>
+          고급 설정
+        </T>
+        <Icon name={advanced ? "chevron-up" : "chevron-down"} size={24} color={p.textDim} />
+      </Pressable>
+      {advanced && <Advanced />}
+    </ScrollView>
+  );
+}
+
+function Advanced() {
+  const s = useStore();
+  const { p, settings } = s;
   const [judge, setJudge] = useState<[number, number]>([0, 0]);
   const nuis = nuisanceStatus();
+  const acc = s.me ? ` · 정확도 ±${Math.round(s.me.accuracyM)}m` : "";
 
   useEffect(() => {
     judgeStats().then(setJudge);
   }, [s.aiCount, s.aiLoading]);
 
-  const acc = s.me ? ` · 정확도 ±${Math.round(s.me.accuracyM)}m` : "";
-
   return (
-    <ScrollView style={{ backgroundColor: p.bg }} contentContainerStyle={[styles.page, { paddingTop: insets.top + 16 }]}>
-      <Text style={[styles.h1, { color: p.text }]}>설정</Text>
-
-      <Section p={p} title="모드 · 목표 온도" desc="목표 온도에 가까울수록 쾌적 점수가 높아집니다.">
-        <Stepper p={p} label="냉방 목표 온도" value={settings.targetCool} unit="°C" min={16} max={30} step={1}
+    <>
+      <Section p={p} title="목표 온도" desc="목표 온도에 가까운 곳일수록 쾌적 점수가 높아져요.">
+        <Stepper p={p} label="더위 피하기" value={settings.targetCool} unit="°C" min={16} max={30} step={1}
           onChange={(v) => s.update({ targetCool: v })} />
-        <Stepper p={p} label="난방 목표 온도" value={settings.targetHeat} unit="°C" min={16} max={30} step={1}
+        <Stepper p={p} label="추위 피하기" value={settings.targetHeat} unit="°C" min={16} max={30} step={1}
           onChange={(v) => s.update({ targetHeat: v })} />
       </Section>
 
-      <Section p={p} title="추천 필터">
-        <Toggle p={p} label="공식 지정 무더위·한파 쉼터만 보기" value={settings.onlyOfficial}
-          onChange={(v) => s.update({ onlyOfficial: v })} />
-        <Toggle p={p} label="지도에 이름이 있는 곳을 AI로 추가 판단" value={settings.aiCandidates}
-          onChange={(v) => s.update({ aiCandidates: v })} />
-        <Text style={[styles.desc, { color: p.textMute }]}>
-          하나로마트·도서관처럼 지도에 상호는 떠 있지만 공식 쉼터로 등록되지 않은 곳을 Gemini가 판단해
-          빈 원으로 함께 표시합니다. 확신도 {MIN_CONFIDENCE}% 미만은 표시하지 않습니다. 추정이므로 운영시간과
-          이용 가능 여부는 현장에서 확인하세요.
-        </Text>
-        <Stepper p={p} label="최대 도보 시간" value={settings.maxWalk} unit="분" min={5} max={60} step={5}
-          onChange={(v) => s.update({ maxWalk: v })} />
-        <Stepper p={p} label="쉼터 검색 반경" value={settings.searchRadius / 1000} unit="km" min={1} max={5} step={0.5}
-          onChange={(v) => s.update({ searchRadius: Math.round(v * 1000) })} />
-        <Text style={[styles.desc, { color: p.textMute }]}>
-          전국 11만여 곳 중 현재 위치 주변만 불러옵니다. 넓힐수록 목록이 길어집니다.
-        </Text>
-      </Section>
-
-      <Section p={p} title="현재 위치">
-        <Text style={[styles.value, { color: p.textDim }]}>
-          {s.located ? `GPS·Wi-Fi 위치${acc}` : "기본값 (서울시청)"}
-        </Text>
-        {!!s.locationNotice && <Text style={[styles.desc, { color: p.warn }]}>{s.locationNotice}</Text>}
-        <Button p={p} icon="crosshairs-gps" text="현재 위치 다시 확인" onPress={() => s.locate()} />
-      </Section>
-
-      <Section p={p} title="데이터 연동 상태">
+      <Section p={p} title="데이터 상태">
         <Status p={p} ok={!s.error} label="쉼터 (행정안전부)"
           value={s.error ? `오류: ${s.error}` : `${s.officialCount}곳 · CoolMap 서버`} />
         <Status p={p} ok={s.weather.live} label="날씨 (기상청)"
           value={s.weather.live ? `실측 ${s.weather.outdoor}°C · 습도 ${s.weather.humidity}%` : "실측값 없음"} />
         <Status p={p} ok={!nuis.error} label="민폐도 (Gemini)"
-          value={nuis.error ? `규칙 기반으로 대체 중 — ${nuis.error}` : `유형 ${nuis.cached}종 캐시 · 대기 ${nuis.pending}`} />
+          value={nuis.error ? `규칙 기반으로 대체 중 — ${nuis.error}` : `유형 ${nuis.cached}종 저장 · 대기 ${nuis.pending}`} />
         <Status p={p} ok={settings.aiCandidates} label="AI 추정 쉼터"
-          value={settings.aiCandidates ? `판단 ${judge[0]}곳 중 ${judge[1]}곳 인정 · 지금 ${s.aiCount}곳 표시${s.aiLoading ? " · 판단 중…" : ""}` : "꺼짐"} />
-        <View style={styles.buttons}>
-          <Button p={p} icon="refresh" text="쉼터 새로 받기" onPress={s.reload} />
-          <Button p={p} icon="delete-outline" text="AI 판단 캐시 비우기" onPress={() =>
-            Alert.alert("AI 판단 캐시 비우기", "저장해 둔 민폐도·추정 쉼터 판단을 지웁니다. 다시 받는 동안 규칙 기반으로 표시됩니다.", [
-              { text: "취소", style: "cancel" },
-              { text: "비우기", style: "destructive", onPress: async () => {
-                await Promise.all([clearNuisanceCache(), clearCandidateCache()]);
-                s.reload();
-              } },
-            ])} />
-        </View>
+          value={settings.aiCandidates
+            ? `판단 ${judge[0]}곳 중 ${judge[1]}곳 인정 (확신 ${MIN_CONFIDENCE}% 이상) · 지금 ${s.aiCount}곳${s.aiLoading ? " · 판단 중…" : ""}`
+            : "꺼짐"} />
+        <Status p={p} ok={s.located} label="위치" value={s.located ? `GPS·Wi-Fi${acc}` : "기본값 (서울시청)"} />
+        <BigButton p={p} icon="refresh" text="쉼터 새로 받기" kind="secondary" onPress={s.reload} />
+        <BigButton p={p} icon="delete-outline" text="AI 판단 기록 지우기" kind="secondary" onPress={() =>
+          Alert.alert("AI 판단 기록 지우기", "저장해 둔 민폐도·추정 쉼터 판단을 지웁니다. 다시 받는 동안 규칙 기반으로 표시됩니다.", [
+            { text: "취소", style: "cancel" },
+            { text: "지우기", style: "destructive", onPress: async () => {
+              await Promise.all([clearNuisanceCache(), clearCandidateCache()]);
+              s.reload();
+            } },
+          ])} />
       </Section>
-
-      {updatesSupported && <UpdateSection p={p} />}
 
       <Section p={p} title="CoolMap 정보">
-        <Text style={[styles.desc, { color: p.textDim }]}>
+        <T size={14} color={p.textDim}>
           CoolMap AI · 냉난방 쉼터 지도 ({Platform.OS === "ios" ? "iOS" : "Android"} {Constants.expoConfig?.version ?? ""}){"\n\n"}
-          · 지도: OpenFreeMap(OpenStreetMap) 벡터 타일과 건물 외곽선을 사용합니다.{"\n"}
-          · 날씨: 기상청 초단기실황의 실측값입니다.{"\n"}
-          · 민폐도: Gemini가 시설 성격·구매 필요 여부·규모·공식 쉼터 지정 여부를 근거로 0~100으로 추정합니다.
-          측정값이 아닌 추정치이며, 서버에 연결할 수 없으면 규칙 기반으로 계산합니다.{"\n"}
-          · 혼잡도: 실시간 인구 데이터 연동 전이라 비활성 상태입니다.{"\n"}
-          · 쉼터: 행정안전부 재난안전데이터공유플랫폼을 사용합니다. 냉방 모드는 무더위쉼터, 난방 모드는 한파쉼터입니다.
-        </Text>
+          · 쉼터: 행정안전부 재난안전데이터공유플랫폼 (더위 피하기 = 무더위쉼터, 추위 피하기 = 한파쉼터){"\n"}
+          · 날씨: 기상청 초단기실황 실측값{"\n"}
+          · 지도: OpenFreeMap (OpenStreetMap){"\n"}
+          · 민폐도·AI 추정 쉼터: Gemini 추정치이며 측정값이 아니에요. 서버에 연결할 수 없으면 규칙으로 계산해요.{"\n"}
+          · 실내 온도는 시설 종류로 추정한 값이에요.
+        </T>
       </Section>
-    </ScrollView>
+    </>
   );
 }
 
 function UpdateSection({ p }: { p: Palette }) {
   const { update, state, check, install } = useUpdate();
+  const busy = state === "checking" || state === "downloading";
   const status =
     state === "checking" ? "확인하는 중…"
-    : state === "downloading" ? "받는 중… 끝나면 설치 화면이 열립니다"
-    : state === "error" && update ? "받지 못했습니다. 다시 눌러 주세요"
-    : state === "error" ? "확인하지 못했습니다. 인터넷 연결을 확인해 주세요"
-    : update ? `새 버전 ${update.version} 이 있습니다 (${update.sizeMB.toFixed(0)}MB)`
-    : state === "latest" ? "최신 버전입니다"
+    : state === "downloading" ? "받는 중… 끝나면 설치 화면이 열려요"
+    : state === "error" && update ? "받지 못했어요. 다시 눌러 주세요"
+    : state === "error" ? "확인하지 못했어요. 인터넷 연결을 확인해 주세요"
+    : update ? `새 버전 ${update.version}이 있어요 (${update.sizeMB.toFixed(0)}MB)`
+    : state === "latest" ? "최신 버전이에요"
     : "";
   return (
-    <Section p={p} title="앱 업데이트" desc={`지금 버전 ${currentVersion}. 새 버전은 GitHub 에서 받아 바로 설치합니다.`}>
-      {!!status && <Text style={[styles.desc, { color: update ? p.accent : p.textDim }]}>{status}</Text>}
-      <Pressable
+    <Section p={p} title="앱 업데이트" desc={`지금 버전 ${currentVersion}`}>
+      {!!status && (
+        <T size={16} color={update ? p.accent : p.textDim}>
+          {status}
+        </T>
+      )}
+      <BigButton
+        p={p}
+        kind={update ? "primary" : "secondary"}
+        icon={update ? "download" : "refresh"}
+        text={update ? "업데이트 설치" : "업데이트 확인"}
+        busy={busy}
         onPress={update ? install : check}
-        disabled={state === "checking" || state === "downloading"}
-        style={[styles.updateBtn, { backgroundColor: update ? p.accent : "transparent", borderColor: update ? p.accent : p.border }]}
-      >
-        {(state === "checking" || state === "downloading") && <ActivityIndicator color={update ? p.accentInk : p.accent} />}
-        <Text style={[styles.updateText, { color: update ? p.accentInk : p.text }]}>
-          {update ? "업데이트 설치" : "업데이트 확인"}
-        </Text>
-      </Pressable>
+      />
     </Section>
   );
 }
 
 function Section({ p, title, desc, children }: { p: Palette; title: string; desc?: string; children: React.ReactNode }) {
   return (
-    <Card p={p} style={{ marginTop: 16, gap: 12 }}>
-      <Text style={[styles.title, { color: p.text }]}>{title}</Text>
-      {desc && <Text style={[styles.desc, { color: p.textMute }]}>{desc}</Text>}
+    <Card p={p} style={{ marginTop: 16, gap: 14 }}>
+      <T size={19} weight="800" color={p.text}>
+        {title}
+      </T>
+      {desc && (
+        <T size={14} color={p.textMute}>
+          {desc}
+        </T>
+      )}
       {children}
     </Card>
   );
 }
 
-function Toggle({ p, label, value, onChange }: { p: Palette; label: string; value: boolean; onChange: (v: boolean) => void }) {
+function Toggle({ p, label, desc, value, onChange }: {
+  p: Palette; label: string; desc?: string; value: boolean; onChange: (v: boolean) => void;
+}) {
   return (
-    <View style={styles.row}>
-      <Text style={[styles.label, { color: p.text }]}>{label}</Text>
+    <Pressable onPress={() => onChange(!value)} style={styles.row} accessibilityRole="switch" accessibilityState={{ checked: value }}>
+      <View style={{ flex: 1, gap: 2 }}>
+        <T size={17} weight="700" color={p.text}>
+          {label}
+        </T>
+        {desc && (
+          <T size={14} color={p.textDim}>
+            {desc}
+          </T>
+        )}
+      </View>
       <Switch value={value} onValueChange={onChange} trackColor={{ true: p.accentDeep, false: p.cardAlt }} thumbColor={value ? p.accent : p.textMute} />
-    </View>
+    </Pressable>
   );
 }
 
@@ -154,13 +198,18 @@ function Stepper({ p, label, value, unit, min, max, step, onChange }: {
   const set = (v: number) => onChange(Math.max(min, Math.min(max, Math.round(v / step) * step)));
   return (
     <View style={styles.row}>
-      <Text style={[styles.label, { color: p.text }]}>{label}</Text>
-      <Pressable onPress={() => set(value - step)} style={[styles.step, { borderColor: p.border }]}>
-        <Icon name="minus" size={18} color={p.text} />
+      <T size={17} weight="700" color={p.text} style={{ flex: 1 }}>
+        {label}
+      </T>
+      <Pressable onPress={() => set(value - step)} accessibilityLabel={`${label} 줄이기`} style={[styles.step, { borderColor: p.border }]}>
+        <Icon name="minus" size={22} color={p.text} />
       </Pressable>
-      <Text style={[styles.stepValue, { color: p.accent }]}>{value}{unit}</Text>
-      <Pressable onPress={() => set(value + step)} style={[styles.step, { borderColor: p.border }]}>
-        <Icon name="plus" size={18} color={p.text} />
+      <T size={18} weight="800" color={p.accent} style={styles.stepValue}>
+        {value}
+        {unit}
+      </T>
+      <Pressable onPress={() => set(value + step)} accessibilityLabel={`${label} 늘리기`} style={[styles.step, { borderColor: p.border }]}>
+        <Icon name="plus" size={22} color={p.text} />
       </Pressable>
     </View>
   );
@@ -169,46 +218,24 @@ function Stepper({ p, label, value, unit, min, max, step, onChange }: {
 function Status({ p, ok, label, value }: { p: Palette; ok: boolean; label: string; value: string }) {
   return (
     <View style={styles.status}>
-      <Icon name={ok ? "check-circle" : "alert-circle-outline"} size={18} color={ok ? p.good : p.warn} />
+      <Icon name={ok ? "check-circle" : "alert-circle-outline"} size={20} color={ok ? p.good : p.warn} />
       <View style={{ flex: 1 }}>
-        <Text style={[styles.label, { color: p.text }]}>{label}</Text>
-        <Text style={[styles.desc, { color: p.textDim }]}>{value}</Text>
+        <T size={16} weight="700" color={p.text}>
+          {label}
+        </T>
+        <T size={14} color={p.textDim}>
+          {value}
+        </T>
       </View>
     </View>
   );
 }
 
-function Button({ p, icon, text, onPress }: { p: Palette; icon: string; text: string; onPress: () => void }) {
-  return (
-    <Pressable onPress={onPress} style={[styles.button, { borderColor: p.border, backgroundColor: p.cardAlt }]}>
-      <Icon name={icon} size={18} color={p.accent} />
-      <Text style={[styles.buttonText, { color: p.text }]}>{text}</Text>
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
-  page: { paddingHorizontal: 16, paddingBottom: 32 },
-  updateBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingVertical: 11,
-  },
-  updateText: { fontSize: 14, fontWeight: "700" },
-  h1: { fontSize: 28, fontWeight: "800" },
-  title: { fontSize: 17, fontWeight: "800" },
-  desc: { fontSize: 12, lineHeight: 18 },
-  value: { fontSize: 14 },
-  row: { flexDirection: "row", alignItems: "center", gap: 10 },
-  label: { flex: 1, fontSize: 14, fontWeight: "600" },
-  step: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, alignItems: "center", justifyContent: "center" },
-  stepValue: { minWidth: 56, textAlign: "center", fontSize: 15, fontWeight: "800" },
+  page: { paddingHorizontal: 16, paddingBottom: 40 },
+  row: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 48 },
+  step: { width: 48, height: 48, borderRadius: 24, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  stepValue: { minWidth: 64, textAlign: "center" },
   status: { flexDirection: "row", gap: 10, alignItems: "flex-start" },
-  buttons: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  button: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 12, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 9 },
-  buttonText: { fontSize: 13, fontWeight: "700" },
+  more: { flexDirection: "row", alignItems: "center", borderWidth: 1, borderRadius: 14, padding: 14, minHeight: 54, marginTop: 16 },
 });

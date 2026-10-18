@@ -54,6 +54,22 @@ def _home(p: QPainter) -> None:
     _stroke(p, _path((9.8, 20), (9.8, 14), (14.2, 14), (14.2, 20)))
 
 
+@_reg("chat")
+def _chat(p: QPainter) -> None:
+    """물어보기 — 물음표가 든 말풍선."""
+    bubble = QPainterPath()
+    bubble.addRoundedRect(3, 4, 18, 13, 4.5, 4.5)
+    _stroke(p, bubble)
+    _stroke(p, _path((8, 17), (7, 21), (12, 17)))
+    q = QPainterPath(QPointF(9.8, 8.6))
+    q.cubicTo(9.8, 6.6, 14.2, 6.6, 14.2, 8.6)
+    q.cubicTo(14.2, 10.2, 12, 10.2, 12, 12)
+    _stroke(p, q)
+    dot = QPainterPath()
+    dot.addEllipse(QPointF(12, 14.4), 0.95, 0.95)
+    _fill(p, dot)
+
+
 @_reg("map")
 def _map(p: QPainter) -> None:
     _stroke(p, _path((2.5, 6.5), (9, 4), (15, 7), (21.5, 4.5), (21.5, 17.5),
@@ -560,7 +576,22 @@ def draw_icon(
     painter.restore()
 
 
+_PIXMAPS: dict[tuple, QPixmap] = {}
+
+
 def icon_pixmap(name: str, size: int, color: QColor | str, weight: float = 1.85) -> QPixmap:
+    """아이콘 그림. 같은 (이름 · 크기 · 색 · 굵기) 는 한 번만 그린다 — 목록을 갱신할 때마다
+    수백 개를 다시 그리던 비용을 없앤다. QPixmap 은 암묵적 공유라 돌려줘도 안전하다."""
+    key = (name, size, QColor(color).rgba(), weight)
+    pm = _PIXMAPS.get(key)
+    if pm is None:
+        if len(_PIXMAPS) > 2000:
+            _PIXMAPS.clear()
+        pm = _PIXMAPS[key] = _render_pixmap(name, size, color, weight)
+    return pm
+
+
+def _render_pixmap(name: str, size: int, color: QColor | str, weight: float) -> QPixmap:
     ratio = 2.0
     pm = QPixmap(int(size * ratio), int(size * ratio))
     pm.setDevicePixelRatio(ratio)

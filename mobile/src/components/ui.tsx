@@ -2,10 +2,109 @@
 
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import type { ComponentProps, ReactNode } from "react";
-import { Image, Pressable, StyleSheet, Text, type TextStyle, View, type ViewStyle } from "react-native";
+import {
+  ActivityIndicator,
+  Image,
+  Pressable,
+  StyleSheet,
+  Text,
+  type TextProps,
+  type TextStyle,
+  View,
+  type ViewStyle,
+} from "react-native";
 import Svg, { Path } from "react-native-svg";
 
+import { useStore } from "../store";
 import type { Palette } from "../theme";
+
+/** 설정의 '큰 글씨' 를 켜면 모든 글씨를 이만큼 키운다 */
+const BIG_TEXT_SCALE = 1.2;
+
+export function useFontScale(): number {
+  return useStore().settings.bigText ? BIG_TEXT_SCALE : 1;
+}
+
+type Weight = "400" | "600" | "700" | "800";
+
+/** 글씨. size 는 기본 크기이고 '큰 글씨' 설정에 따라 커진다. */
+export function T({
+  size = 16,
+  weight = "400",
+  color,
+  style,
+  children,
+  ...rest
+}: TextProps & { size?: number; weight?: Weight; color: string; style?: TextStyle | TextStyle[] }) {
+  const k = useFontScale();
+  return (
+    <Text {...rest} style={[{ fontSize: size * k, lineHeight: Math.round(size * k * 1.4), fontWeight: weight, color }, style]}>
+      {children}
+    </Text>
+  );
+}
+
+/** 화면의 주 동작 버튼 (길찾기 등). 손가락으로 누르기 쉽게 크게 만든다. */
+export function BigButton({
+  text,
+  icon,
+  onPress,
+  p,
+  kind = "primary",
+  busy,
+  style,
+}: {
+  text: string;
+  icon?: string;
+  onPress: () => void;
+  p: Palette;
+  kind?: "primary" | "secondary";
+  busy?: boolean;
+  style?: ViewStyle;
+}) {
+  const primary = kind === "primary";
+  const fg = primary ? p.accentInk : p.text;
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={busy}
+      style={({ pressed }) => [
+        styles.bigBtn,
+        { backgroundColor: primary ? p.accent : p.cardAlt, borderColor: primary ? p.accent : p.border, opacity: pressed ? 0.75 : 1 },
+        style,
+      ]}
+    >
+      {busy ? <ActivityIndicator color={fg} /> : icon ? <Icon name={icon} size={22} color={fg} /> : null}
+      <T size={17} weight="800" color={fg}>
+        {text}
+      </T>
+    </Pressable>
+  );
+}
+
+/** 공식 쉼터 · AI 추정 같은 짧은 표시 */
+export function Tag({ text, tone, p }: { text: string; tone: "good" | "warn" | "mute"; p: Palette }) {
+  const color = tone === "good" ? p.good : tone === "warn" ? p.warn : p.textDim;
+  return (
+    <View style={[styles.tag, { borderColor: color }]}>
+      <T size={13} weight="700" color={color}>
+        {text}
+      </T>
+    </View>
+  );
+}
+
+/** 아이콘 + 한 줄 정보 */
+export function InfoLine({ icon, text, p, color }: { icon: string; text: string; p: Palette; color?: string }) {
+  return (
+    <View style={styles.infoLine}>
+      <Icon name={icon} size={20} color={color ?? p.textDim} />
+      <T size={16} color={color ?? p.text} style={{ flex: 1 }}>
+        {text}
+      </T>
+    </View>
+  );
+}
 
 export type IconName = ComponentProps<typeof MaterialCommunityIcons>["name"];
 
@@ -148,6 +247,18 @@ export function Logo({ p, subtitle = true }: { p: Palette; subtitle?: boolean })
 
 export const styles = StyleSheet.create({
   card: { borderRadius: 18, borderWidth: 1, padding: 16 },
+  bigBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    minHeight: 54,
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingHorizontal: 18,
+  },
+  tag: { borderWidth: 1.5, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
+  infoLine: { flexDirection: "row", alignItems: "center", gap: 10 },
   pill: {
     flexDirection: "row",
     alignItems: "center",

@@ -16,14 +16,14 @@ from PySide6.QtWidgets import (
 from .. import icons
 from ..config import AppState
 from ..models import COOLING
-from ..theme import Palette
+from ..theme import Palette, fpx
 from .common import mono, set_prop
 
+# 즐겨찾기는 홈의 '자주 가는 곳' 에 있다 (모바일 하단 탭과 같은 구성)
 NAV_ITEMS = [
     ("home", "홈", "home"),
     ("map", "지도", "map"),
-    ("favorites", "즐겨찾기", "heart"),
-    ("ai", "AI 추천", "sparkle"),
+    ("ai", "물어보기", "chat"),
     ("settings", "설정", "gear"),
 ]
 
@@ -84,7 +84,7 @@ class NavButton(QPushButton):
         self.icon_name = icon
         self.setObjectName("navItem")
         self.setCursor(Qt.PointingHandCursor)
-        self.setMinimumHeight(50)
+        self.setMinimumHeight(58)
 
 
 class Sidebar(QFrame):
@@ -93,7 +93,8 @@ class Sidebar(QFrame):
     def __init__(self, state: AppState, parent: QWidget | None = None):
         super().__init__(parent)
         self.setObjectName("sidebar")
-        self.setFixedWidth(252)
+        # 큰 글씨일 때 로고 글자가 잘리지 않게 폭도 함께 넓힌다
+        self.setFixedWidth(max(252, fpx(240)))
         self.state = state
         self._current = "home"
 
@@ -109,10 +110,7 @@ class Sidebar(QFrame):
         text.setSpacing(1)
         self.title = QLabel("CoolMap AI")
         self.title.setObjectName("brandTitle")
-        self.sub = QLabel("CLIMATE CONTROL CENTER")
-        self.sub.setObjectName("brandSub")
         text.addWidget(self.title)
-        text.addWidget(self.sub)
         brand.addWidget(self.logo, 0, Qt.AlignTop)
         brand.addLayout(text, 1)
         lay.addLayout(brand)
@@ -152,8 +150,8 @@ class Sidebar(QFrame):
             active = key == self._current
             set_prop(btn, "active", active)
             color = p.accent_ink if active else (p.accent if key == "ai" else p.text_dim)
-            btn.setIcon(icons.qicon(btn.icon_name, 21, color))
-            btn.setIconSize(icons.icon_size(21))
+            btn.setIcon(icons.qicon(btn.icon_name, 24, color))
+            btn.setIconSize(icons.icon_size(24))
         self.clock.setText(self.state.clock_label())
 
     def refresh_clock(self) -> None:

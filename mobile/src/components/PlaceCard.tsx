@@ -1,148 +1,136 @@
-// 추천 목록 · 즐겨찾기 카드 (coolmap/ui/placecard.py) 와 지도 목록 한 줄 (mapview.py PlaceRow).
+// 쉼터 카드. 점수 대신 '걸어서 몇 분 · 지금 열렸는지 · 얼마나 머물러도 되는지' 를 쉬운 말로 보여 준다.
+//   TopCard  — 가장 먼저 갈 곳 (홈 · 지도에서 고른 곳). 큰 길찾기 버튼이 있다.
+//   PlaceRow — 목록 한 줄. 누르면 상세로 간다.
 
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 
-import { type Analysis, analysisDistance, stayLabel } from "../analysis";
+import type { Analysis } from "../analysis";
+import { openDirections } from "../directions";
 import { categoryIcon, categoryLabel } from "../places";
-import { nuisanceColor, type Palette } from "../theme";
-import { Icon, MeterBar, Pill } from "./ui";
+import { openLine, stayLine, tags, tempLine, walkLine } from "../plain";
+import { useStore } from "../store";
+import type { Palette } from "../theme";
+import { BigButton, Icon, InfoLine, T, Tag } from "./ui";
 
-export function PlaceCard({
+export function TopCard({
   a,
   p,
-  favorite,
   onOpen,
-  onFavorite,
+  onClose,
 }: {
   a: Analysis;
   p: Palette;
-  favorite: boolean;
   onOpen: () => void;
-  onFavorite: () => void;
+  onClose?: () => void;
 }) {
-  const nc = nuisanceColor(p, a.nuisance.key);
+  const s = useStore();
+  const open = a.openNow;
   return (
-    <Pressable onPress={onOpen} style={[styles.card, { backgroundColor: p.card, borderColor: p.border }]}>
-      <View style={styles.head}>
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.name, { color: p.text }]} numberOfLines={2}>
-            {a.place.name}
-          </Text>
-          <View style={styles.meta}>
-            <Icon name="walk" size={13} color={p.textMute} />
-            <Text style={[styles.metaText, { color: p.textMute }]}>
-              {analysisDistance(a)} ({a.walkMin}분) · {categoryLabel(a.place)}
-            </Text>
+    <View style={[styles.top, { backgroundColor: p.card, borderColor: p.accent }]}>
+      <Pressable onPress={onOpen} style={{ gap: 10 }}>
+        <View style={styles.head}>
+          <View style={[styles.catIcon, { backgroundColor: p.accentSoft }]}>
+            <Icon name={categoryIcon(a.place)} size={24} color={p.accent} />
           </View>
-        </View>
-        <View style={[styles.catIcon, { backgroundColor: p.cardAlt }]}>
-          <Icon name={categoryIcon(a.place)} size={20} color={p.accent} />
-        </View>
-      </View>
-
-      {(a.place.aiGuess || a.place.official) && (
-        <View style={styles.pills}>
-          {a.place.official && <Pill text="공식 지정 쉼터" icon="check-circle" color={p.good} bg={p.cardAlt} />}
-          {a.place.aiGuess && (
-            <Pill text={`AI 추정 ${a.place.aiConfidence}% · 공식 쉼터 아님`} icon="creation" color={p.warn} bg={p.cardAlt} />
+          <View style={styles.fill}>
+            <T size={21} weight="800" color={p.text} numberOfLines={2}>
+              {a.place.name}
+            </T>
+            <T size={14} color={p.textDim}>
+              {categoryLabel(a.place)}
+            </T>
+          </View>
+          {onClose && (
+            <Pressable onPress={onClose} hitSlop={14} accessibilityLabel="닫기">
+              <Icon name="close" size={26} color={p.textMute} />
+            </Pressable>
           )}
         </View>
-      )}
-
-      <View style={[styles.inner, { backgroundColor: p.cardAlt, borderColor: p.border }]}>
-        <View style={[styles.tempBox, { backgroundColor: a.crowd.openNow ? p.accentSoft : p.card }]}>
-          <Text style={[styles.temp, { color: a.crowd.openNow ? p.accent : p.textMute }]}>
-            {a.crowd.openNow ? `${Math.round(a.indoor)}°C` : "—"}
-          </Text>
-          <Text style={[styles.tempLabel, { color: p.textMute }]}>{a.crowd.openNow ? "실내" : "운영종료"}</Text>
-        </View>
-        <View style={{ flex: 1, gap: 6 }}>
-          <View style={styles.scoreRow}>
-            <Text style={[styles.scoreLabel, { color: p.textDim }]}>쾌적 점수</Text>
-            <Text style={[styles.score, { color: p.accent }]}>{a.comfort}/100</Text>
+        {tags(a).length > 0 && (
+          <View style={styles.tags}>
+            {tags(a).map((t) => (
+              <Tag key={t.text} text={t.text} tone={t.tone} p={p} />
+            ))}
           </View>
-          <MeterBar value={a.comfort / 100} color={p.accent} track={p.card} />
-          <View style={styles.chips}>
-            <Pill text="혼잡도 준비 중" color={p.textMute} bg={p.card} border={p.border} />
-            <Pill text={`민폐도 ${a.nuisance.score}`} color={nc} bg={p.card} border={p.border} />
-          </View>
+        )}
+        <View style={{ gap: 8 }}>
+          <InfoLine icon="walk" text={walkLine(a)} p={p} />
+          <InfoLine
+            icon="clock-outline"
+            text={openLine(a, s.now)}
+            p={p}
+            color={open ? p.good : p.textMute}
+          />
+          {open && <InfoLine icon="thermometer" text={tempLine(a)} p={p} />}
+          {open && <InfoLine icon="sofa-outline" text={stayLine(a)} p={p} />}
         </View>
+      </Pressable>
+      <View style={styles.actions}>
+        <BigButton text="길찾기" icon="walk" p={p} onPress={() => openDirections(a.place, s.here)} style={styles.fill} />
+        <BigButton text="자세히" p={p} kind="secondary" onPress={onOpen} />
       </View>
-
-      <View style={styles.foot}>
-        <Icon name="star" size={16} color="#FBBF24" />
-        <Text style={[styles.footText, { color: p.textDim }]} numberOfLines={1}>
-          {a.nuisance.level} · 권장 체류 {stayLabel(a.nuisance.stayMinutes)}
-        </Text>
-        <Pressable onPress={onFavorite} hitSlop={10}>
-          <Icon name={favorite ? "heart" : "heart-outline"} size={20} color={favorite ? p.accent : p.textDim} />
-        </Pressable>
-        <View style={[styles.arrow, { backgroundColor: p.cardAlt }]}>
-          <Icon name="arrow-right" size={16} color={p.text} />
-        </View>
-      </View>
-    </Pressable>
+    </View>
   );
 }
 
-export function PlaceRow({ a, p, selected, onPress }: { a: Analysis; p: Palette; selected: boolean; onPress: () => void }) {
-  const temp = a.crowd.openNow ? `실내 ${Math.round(a.indoor)}°C` : "운영 종료";
+export function PlaceRow({ a, p, onPress }: { a: Analysis; p: Palette; onPress: () => void }) {
+  const s = useStore();
+  const open = a.openNow;
   return (
     <Pressable
       onPress={onPress}
-      style={[styles.row, { borderColor: p.border, backgroundColor: selected ? p.accentSoft : "transparent" }]}
+      style={({ pressed }) => [styles.row, { borderColor: p.border, backgroundColor: pressed ? p.cardAlt : "transparent" }]}
     >
-      <View style={[styles.rowIcon, { backgroundColor: p.cardAlt, borderStyle: a.place.aiGuess ? "dashed" : "solid", borderColor: a.place.aiGuess ? p.warn : p.cardAlt }]}>
-        <Icon name={categoryIcon(a.place)} size={16} color={a.crowd.openNow ? p.accent : p.textMute} />
+      <View
+        style={[
+          styles.rowIcon,
+          {
+            backgroundColor: p.cardAlt,
+            borderStyle: a.place.aiGuess ? "dashed" : "solid",
+            borderColor: a.place.aiGuess ? p.warn : p.cardAlt,
+          },
+        ]}
+      >
+        <Icon name={categoryIcon(a.place)} size={20} color={open ? p.accent : p.textMute} />
       </View>
-      <View style={{ flex: 1 }}>
-        <Text style={[styles.rowName, { color: p.text }]} numberOfLines={1}>
+      <View style={styles.fill}>
+        <T size={17} weight="700" color={open ? p.text : p.textDim} numberOfLines={1}>
           {a.place.name}
-        </Text>
-        <Text style={[styles.rowMeta, { color: p.textMute }]} numberOfLines={1}>
-          {a.place.aiGuess ? "AI 추정 · " : ""}
-          {temp} · 도보 {a.walkMin}분 · {analysisDistance(a)}
-        </Text>
+        </T>
+        <T size={14} color={p.textDim} numberOfLines={1}>
+          걸어서 {Math.max(1, a.walkMin)}분 ·{" "}
+          <T size={14} weight="700" color={open ? p.good : p.textMute}>
+            {open ? "지금 열림" : "문 닫음"}
+          </T>
+          {a.place.aiGuess ? " · AI 추정" : ""}
+        </T>
+        {!open && (
+          <T size={13} color={p.textMute} numberOfLines={1}>
+            {openLine(a, s.now)}
+          </T>
+        )}
       </View>
-      <View style={{ alignItems: "flex-end" }}>
-        <Text style={[styles.rowScore, { color: p.accent }]}>쾌적 {a.comfort}</Text>
-        <Text style={[styles.rowNuis, { color: nuisanceColor(p, a.nuisance.key) }]}>민폐 {a.nuisance.score}</Text>
-      </View>
+      <Icon name="chevron-right" size={24} color={p.textMute} />
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  card: { borderRadius: 18, borderWidth: 1, padding: 16, gap: 12 },
-  head: { flexDirection: "row", gap: 12 },
-  name: { fontSize: 17, fontWeight: "800" },
-  meta: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 },
-  metaText: { fontSize: 12, fontWeight: "600" },
-  catIcon: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
-  pills: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
-  inner: { flexDirection: "row", gap: 12, borderRadius: 14, borderWidth: 1, padding: 12, alignItems: "center" },
-  tempBox: { borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, alignItems: "center", minWidth: 64 },
-  temp: { fontSize: 22, fontWeight: "800" },
-  tempLabel: { fontSize: 10, fontWeight: "700", letterSpacing: 1 },
-  scoreRow: { flexDirection: "row", justifyContent: "space-between" },
-  scoreLabel: { fontSize: 12, fontWeight: "700" },
-  score: { fontSize: 12, fontWeight: "800" },
-  chips: { flexDirection: "row", gap: 6, flexWrap: "wrap" },
-  foot: { flexDirection: "row", alignItems: "center", gap: 8 },
-  footText: { flex: 1, fontSize: 13, fontWeight: "600" },
-  arrow: { width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center" },
+  fill: { flex: 1 },
+  top: { borderRadius: 20, borderWidth: 2, padding: 16, gap: 14 },
+  head: { flexDirection: "row", alignItems: "center", gap: 12 },
+  catIcon: { width: 46, height: 46, borderRadius: 23, alignItems: "center", justifyContent: "center" },
+  tags: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  actions: { flexDirection: "row", gap: 10 },
   row: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 12,
+    minHeight: 64,
     paddingVertical: 10,
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderRadius: 10,
   },
-  rowIcon: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center", borderWidth: 1.5 },
-  rowName: { fontSize: 15, fontWeight: "700" },
-  rowMeta: { fontSize: 12, marginTop: 2 },
-  rowScore: { fontSize: 13, fontWeight: "800" },
-  rowNuis: { fontSize: 12, fontWeight: "700", marginTop: 2 },
+  rowIcon: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center", borderWidth: 1.5 },
 });

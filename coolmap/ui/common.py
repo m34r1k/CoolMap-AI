@@ -23,16 +23,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import icons
-from ..theme import KR_FONT, MONO_FONT, UI_FONT, Palette
-
-CROWD_COLOR_KEYS = {
-    "very_low": "good",
-    "low": "good",
-    "normal": "warn",
-    "busy": "warn",
-    "very_busy": "bad",
-    "closed": "text_mute",
-}
+from ..theme import KR_FONT, MONO_FONT, UI_FONT, Palette, fpx
 
 NUISANCE_COLOR_KEYS = {
     "very_low": "good",
@@ -43,27 +34,30 @@ NUISANCE_COLOR_KEYS = {
 }
 
 
-def crowd_color(p: Palette, key: str) -> QColor:
-    if key in ("very_low",):
-        return QColor(p.good)
-    if key == "low":
-        return QColor(p.accent)
-    return QColor(getattr(p, CROWD_COLOR_KEYS.get(key, "text_dim")))
-
-
 def nuisance_color(p: Palette, key: str) -> QColor:
     return QColor(getattr(p, NUISANCE_COLOR_KEYS.get(key, "text_dim")))
 
 
+#: 그림자 진하기 배율. 어두운 화면에 맞춘 그림자는 밝은 화면에서 회색 띠처럼 보여서 줄인다.
+_SHADOW_SCALE = {"dark": 1.0, "light": 0.3}
+_shadow_scale = _SHADOW_SCALE["light"]
+
+
+def _shadow_color(alpha: int) -> QColor:
+    return QColor(0, 0, 0, int(alpha * _shadow_scale))
+
+
 def apply_palette_tree(root: QWidget, p: Palette) -> None:
-    """apply_palette() 를 가진 모든 하위 위젯에 팔레트를 전파."""
-    fn = getattr(root, "apply_palette", None)
-    if callable(fn):
-        fn(p)
-    for w in root.findChildren(QWidget):
+    """apply_palette() 를 가진 모든 하위 위젯에 팔레트를 전파 (그림자 진하기도 테마에 맞춘다)."""
+    global _shadow_scale
+    _shadow_scale = _SHADOW_SCALE["dark" if p.dark else "light"]
+    for w in [root, *root.findChildren(QWidget)]:
         fn = getattr(w, "apply_palette", None)
         if callable(fn):
             fn(p)
+        eff = w.graphicsEffect()
+        if isinstance(eff, QGraphicsDropShadowEffect):
+            eff.setColor(_shadow_color(int(eff.property("base_alpha") or 120)))
 
 
 def set_prop(w: QWidget, name: str, value) -> None:
@@ -78,7 +72,8 @@ def add_shadow(widget: QWidget, blur: int = 34, alpha: int = 120, dy: int = 8) -
     eff = QGraphicsDropShadowEffect(widget)
     eff.setBlurRadius(blur)
     eff.setOffset(0, dy)
-    eff.setColor(QColor(0, 0, 0, alpha))
+    eff.setProperty("base_alpha", alpha)
+    eff.setColor(_shadow_color(alpha))
     widget.setGraphicsEffect(eff)
 
 
@@ -89,7 +84,7 @@ def mono(size: int, weight: QFont.Weight = QFont.Normal, spacing: float = 1.4) -
     """
     f = QFont(MONO_FONT)
     f.setFamilies([MONO_FONT, KR_FONT, UI_FONT])
-    f.setPixelSize(size)
+    f.setPixelSize(fpx(size))
     f.setWeight(weight)
     f.setLetterSpacing(QFont.AbsoluteSpacing, spacing)
     return f
@@ -99,7 +94,7 @@ def ui_font(size: int, weight: QFont.Weight = QFont.Normal) -> QFont:
     """size 는 픽셀 단위."""
     f = QFont(UI_FONT)
     f.setFamilies([UI_FONT, KR_FONT])
-    f.setPixelSize(size)
+    f.setPixelSize(fpx(size))
     f.setWeight(weight)
     return f
 
@@ -143,10 +138,14 @@ class IconLabel(QLabel):
         self.setPixmap(icons.icon_pixmap(self._name, self._size, self._color, self._weight))
 
     def set_icon(self, name: str) -> None:
+        if name == self._name:
+            return
         self._name = name
         self._render()
 
     def set_color(self, color: str) -> None:
+        if color == self._color:
+            return
         self._color = color
         self._render()
 
@@ -413,101 +412,6 @@ class GaugeArc(QWidget):
             p.setPen(self._dim)
             p.setFont(mono(9, QFont.Normal, 0.4))
             p.drawText(QRectF(0, h * 0.73, w, 16), Qt.AlignCenter, self._sub)
-        p.end()
-
-
-class HourlyChart(QWidget):
-    """24시간 혼잡도 예측 막대 그래프."""
-
-    def __init__(self, parent: QWidget | None = None):
-        super().__init__(parent)
-        self._values: list[float] = [0.0] * 24
-        self._now = 12
-        self._event_hours: set[int] = set()
-        self._accent = QColor("#22D3EE")
-        self._track = QColor("#16202F")
-        self._dim = QColor("#63788E")
-        self._warn = QColor("#FBBF24")
-        self.setMinimumHeight(112)
-        self.setMouseTracking(True)
-        self._hover = -1
-
-    def set_data(self, values: list[float], now: int, event_hours: set[int] | None = None) -> None:
-        self._values = values
-        self._now = now
-        self._event_hours = event_hours or set()
-        self.update()
-
-    def set_colors(self, accent: str, track: str, dim: str, warn: str) -> None:
-        self._accent = QColor(accent)
-        self._track = QColor(track)
-        self._dim = QColor(dim)
-        self._warn = QColor(warn)
-        self.update()
-
-    def _bar_rect(self, i: int) -> QRectF:
-        pad_bottom = 20
-        gap = 3.0
-        total = self.width()
-        bw = (total - gap * 23) / 24
-        x = i * (bw + gap)
-        return QRectF(x, 0, bw, self.height() - pad_bottom)
-
-    def mouseMoveEvent(self, ev) -> None:
-        idx = -1
-        for i in range(24):
-            r = self._bar_rect(i)
-            if r.x() - 1.5 <= ev.position().x() <= r.right() + 1.5:
-                idx = i
-                break
-        if idx != self._hover:
-            self._hover = idx
-            if idx >= 0:
-                v = self._values[idx]
-                txt = "운영 종료" if v <= 0 else f"{idx:02d}:00 · 혼잡도 {int(v * 100)}%"
-                self.setToolTip(txt)
-            self.update()
-
-    def leaveEvent(self, ev) -> None:
-        self._hover = -1
-        self.update()
-
-    def paintEvent(self, ev) -> None:
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
-        avail = self.height() - 20
-        for i in range(24):
-            r = self._bar_rect(i)
-            v = self._values[i]
-            bh = max(3.0, avail * max(v, 0.03))
-            bar = QRectF(r.x(), avail - bh, r.width(), bh)
-            is_now = i == self._now
-            if v <= 0:
-                color = QColor(self._track)
-                color.setAlpha(140)
-            elif i in self._event_hours:
-                color = QColor(self._warn)
-                color.setAlpha(255 if is_now else 190)
-            elif is_now:
-                color = QColor(self._accent)
-            else:
-                color = QColor(self._accent)
-                color.setAlpha(90 if i != self._hover else 165)
-            p.setPen(Qt.NoPen)
-            p.setBrush(color)
-            p.drawRoundedRect(bar, 3, 3)
-
-            if is_now:
-                p.setPen(QPen(self._accent, 1.4))
-                p.setBrush(Qt.NoBrush)
-                p.drawRoundedRect(bar.adjusted(-2, -3, 2, 0), 4, 4)
-
-        p.setFont(mono(8, QFont.Normal, 0.6))
-        for i in range(0, 24, 3):
-            r = self._bar_rect(i)
-            p.setPen(self._accent if i == self._now else self._dim)
-            p.drawText(QRectF(r.x() - 8, self.height() - 17, r.width() + 16, 14),
-                       Qt.AlignCenter, f"{i:02d}")
         p.end()
 
 

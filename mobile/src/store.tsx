@@ -21,7 +21,7 @@ import { haversine, walkMinutes } from "./geo";
 import { onNuisance } from "./nuisance";
 import { type Place, shelterToPlace } from "./places";
 import { load, save } from "./storage";
-import { defaultMode, type Mode, type Palette, PALETTES } from "./theme";
+import { defaultMode, type Mode, type Palette, paletteFor } from "./theme";
 
 export type LngLat = [number, number];
 export type Fix = { coord: LngLat; accuracyM: number };
@@ -39,6 +39,8 @@ export type Settings = {
   maxWalk: number; // 분
   searchRadius: number; // m
   favorites: Place[]; // 반경 밖으로 나가도 열 수 있도록 장소를 통째로 보관한다
+  bigText: boolean; // 글씨를 크게 (어르신용)
+  darkMode: boolean; // 기본은 라이트
 };
 
 const DEFAULTS: Settings = {
@@ -50,6 +52,8 @@ const DEFAULTS: Settings = {
   maxWalk: 40,
   searchRadius: 2500,
   favorites: [],
+  bigText: false,
+  darkMode: false,
 };
 
 // 쉼터 데이터는 국내뿐이다
@@ -126,7 +130,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [reloadKey, setReloadKey] = useState(0);
 
   const mode = settings.mode;
-  const p = PALETTES[mode];
+  const p = paletteFor(mode, settings.darkMode);
   const target = mode === "cooling" ? settings.targetCool : settings.targetHeat;
 
   // -- 설정 ------------------------------------------------------------------

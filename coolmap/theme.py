@@ -1,7 +1,11 @@
-"""CoolMap 테마 — 냉방(Cooling) / 난방(Heating) 두 벌의 팔레트와 QSS."""
+"""CoolMap 테마 — 냉방(Cooling) / 난방(Heating) × 라이트 / 다크 팔레트와 QSS.
+
+기본은 라이트. 다크는 설정에서 켠다 (mobile/src/theme.ts 와 같은 색).
+"""
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, asdict
 from string import Template
 
@@ -54,6 +58,8 @@ class Palette:
     map_road_major: str
     map_water: str
     map_park: str
+
+    dark: bool = True
 
     def qcolor(self, name: str) -> QColor:
         return QColor(getattr(self, name))
@@ -130,16 +136,100 @@ HEATING_PALETTE = Palette(
     map_park="#1B2417",
 )
 
+LIGHT_COOLING_PALETTE = Palette(
+    key=COOLING,
+    label="냉방 모드",
+    tagline="폭염 대응 · 시원한 쉼터를 찾습니다",
+    mode_icon="snow",
+    accent="#0284C7",
+    accent_bright="#0EA5E9",
+    accent_deep="#075985",
+    accent_ink="#FFFFFF",
+    accent_soft="#E0F2FE",
+    bg="#F3F6F9",
+    panel="#FFFFFF",
+    card="#FFFFFF",
+    card_alt="#EEF3F8",
+    hover="#E4ECF4",
+    border="#CFDAE5",
+    border_soft="#E1E8EF",
+    text="#0F1B2A",
+    text_dim="#45576B",
+    text_mute="#76889B",
+    good="#047857",
+    warn="#B45309",
+    bad="#DC2626",
+    map_bg="#E8EDF1",
+    map_block="#F1F4F7",
+    map_building="#DCE3EA",
+    map_building_edge="#C3CDD8",
+    map_road="#FFFFFF",
+    map_road_major="#F7F9FB",
+    map_water="#C9E2F2",
+    map_park="#D9EBDC",
+    dark=False,
+)
+
+LIGHT_HEATING_PALETTE = Palette(
+    key=HEATING,
+    label="난방 모드",
+    tagline="한파 대응 · 따뜻한 쉼터를 찾습니다",
+    mode_icon="flame",
+    accent="#DC4A16",
+    accent_bright="#F2672F",
+    accent_deep="#9A3412",
+    accent_ink="#FFFFFF",
+    accent_soft="#FDEBE3",
+    bg="#FAF6F4",
+    panel="#FFFFFF",
+    card="#FFFFFF",
+    card_alt="#F6EFEC",
+    hover="#F0E5E1",
+    border="#E6D5CF",
+    border_soft="#EFE5E1",
+    text="#2A1512",
+    text_dim="#6B4D46",
+    text_mute="#9A7E76",
+    good="#3F7F2F",
+    warn="#B45309",
+    bad="#D12F2F",
+    map_bg="#EEE9E6",
+    map_block="#F5F1EF",
+    map_building="#E6DDD8",
+    map_building_edge="#D2C5BF",
+    map_road="#FFFFFF",
+    map_road_major="#FBF8F6",
+    map_water="#CBE0EC",
+    map_park="#DCEAD7",
+    dark=False,
+)
+
 PALETTES = {COOLING: COOLING_PALETTE, HEATING: HEATING_PALETTE}
+LIGHT_PALETTES = {COOLING: LIGHT_COOLING_PALETTE, HEATING: LIGHT_HEATING_PALETTE}
 
 
-def palette_for(mode: str) -> Palette:
-    return PALETTES.get(mode, COOLING_PALETTE)
+def palette_for(mode: str, dark: bool = False) -> Palette:
+    table = PALETTES if dark else LIGHT_PALETTES
+    return table.get(mode, table[COOLING])
 
 
 UI_FONT = "Segoe UI"
 MONO_FONT = "Consolas"
 KR_FONT = "Malgun Gothic"   # Consolas/Segoe UI 에 없는 한글 글리프 폴백
+
+#: 설정의 '큰 글씨' 를 켜면 모든 글씨에 곱한다. 화면은 시작할 때 만들어지므로 다시 켜야 적용된다.
+BIG_TEXT_SCALE = 1.2
+FONT_SCALE = 1.0
+
+
+def set_font_scale(scale: float) -> None:
+    global FONT_SCALE
+    FONT_SCALE = scale
+
+
+def fpx(size: float) -> int:
+    """글씨 크기(px)에 배율을 곱한다."""
+    return max(1, int(round(size * FONT_SCALE)))
 
 
 _QSS = Template(
@@ -186,10 +276,10 @@ QPushButton#navItem {
     border: none;
     border-radius: 14px;
     color: $text_dim;
-    font-size: 16px;
-    font-weight: 600;
+    font-size: 18px;
+    font-weight: 700;
     text-align: left;
-    padding: 13px 16px;
+    padding: 14px 16px;
 }
 QPushButton#navItem:hover {
     background: $hover;
@@ -295,11 +385,11 @@ QPushButton#primary {
     border: none;
     border-radius: 22px;
     padding: 13px 22px;
-    font-size: 15px;
+    font-size: 17px;
     font-weight: 800;
 }
 QPushButton#primary:hover { background: $accent_bright; }
-QPushButton#primary:pressed { background: $accent_deep; color: $text; }
+QPushButton#primary:pressed { background: $accent_deep; color: $accent_ink; }
 
 QPushButton#ghost {
     background: transparent;
@@ -316,9 +406,8 @@ QPushButton#chip {
     border-radius: 15px;
     padding: 7px 13px;
     color: $text_dim;
-    font-family: "$mono_font", "$kr_font";
-    font-size: 11px;
-    font-weight: 600;
+    font-size: 15px;
+    font-weight: 700;
 }
 QPushButton#chip:hover { color: $text; border-color: $accent_deep; }
 QPushButton#chip[active="true"] {
@@ -426,4 +515,5 @@ def build_qss(p: Palette) -> str:
     values["ui_font"] = UI_FONT
     values["mono_font"] = MONO_FONT
     values["kr_font"] = KR_FONT
-    return _QSS.substitute(values)
+    qss = _QSS.substitute(values)
+    return re.sub(r"font-size: (\d+)px", lambda m: f"font-size: {fpx(int(m.group(1)))}px", qss)

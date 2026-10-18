@@ -120,11 +120,15 @@ class TileProvider(QObject):
     def attribution(self) -> str:
         return self.meta["attribution"]
 
-    def set_mode(self, mode: str) -> None:
-        """모드 색상 적용. 변환 결과가 바뀌므로 메모리 캐시를 비운다."""
-        if mode == self._mode:
+    def set_mode(self, mode: str, dark: bool = True) -> None:
+        """모드 색상 적용. 변환 결과가 바뀌므로 메모리 캐시를 비운다.
+
+        다크 테마에서는 밝은 OSM 타일을 어두운 색 램프로 바꾸고, 라이트 테마에서는 원본을 쓴다.
+        """
+        if mode == self._mode and dark == self._dark:
             return
         self._mode = mode
+        self._dark = dark
         self._table = _color_table(mode)
         with self._lock:
             self._mem.clear()

@@ -31,6 +31,9 @@ BASE = "https://www.safetydata.go.kr/V2/api"
 PAGE_SIZE = 1000
 CACHE_TTL = 14 * 24 * 3600      # 2주
 BACKEND_TTL = 3 * 24 * 3600     # 서버 사본은 한도가 없으니 더 자주 갱신한다
+#: 받기가 실패하거나 일부만 받았을 때 자동으로 다시 시도하기까지 기다리는 시간.
+#: 이게 없으면 '오래됨 → 받기 → 실패 → 아직 오래됨 → 또 받기' 가 쉬지 않고 돌아 앱이 멈춘다.
+RETRY_AFTER = 5 * 60
 BACKEND_WORKERS = 4
 
 
@@ -335,7 +338,6 @@ def record_to_place(rec: dict, mode: str) -> Place | None:
         weekend_closed=weekend_closed,
         seats=seats,
         capacity=max(seats, int(people) if people else 40),
-        base_crowd=0.3,
         indoor_cool=indoor_cool,
         indoor_heat=indoor_heat,
         humidity=50,
@@ -368,6 +370,7 @@ class ShelterProvider(QObject):
         self._fetched_at = 0.0
         self._missing_pages: list[int] = []
         self._total_expected = 0
+        self._retry_at = 0.0
         self._load_cache()
 
     # -- 상태 -------------------------------------------------------------
@@ -456,7 +459,7 @@ class ShelterProvider(QObject):
     def sync(self, force: bool = False) -> None:
         if self._syncing or not self.has_key:
             return
-        if not force and not self.stale():
+        if not force and (not self.stale() or time.time() < self._retry_at):
             return
         self._syncing = True
         self._pool.submit(self._do_sync_backend if self.use_backend else self._do_sync)
@@ -510,6 +513,7 @@ class ShelterProvider(QObject):
             self._error = f"CoolMap 서버에서 쉼터를 받지 못했습니다 ({type(exc).__name__}: {exc})"
         finally:
             self._syncing = False
+            self._retry_at = time.time() + RETRY_AFTER if (self._error or self._missing_pages) else 0.0
         self.ready.emit()
 
     def _fetch_page(self, page: int) -> tuple[list[dict], int]:
@@ -606,6 +610,7 @@ class ShelterProvider(QObject):
             self._error = f"{type(exc).__name__}: {exc}"
         finally:
             self._syncing = False
+            self._retry_at = time.time() + RETRY_AFTER if (self._error or self._missing_pages) else 0.0
         self.ready.emit()
 
     @property

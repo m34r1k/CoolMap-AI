@@ -51,7 +51,6 @@ export type Place = {
   // 규모 / 환경
   seats: number;
   capacity: number;
-  baseCrowd: number;
   indoorCool: number;
   indoorHeat: number;
   humidity: number;
@@ -280,7 +279,6 @@ export function shelterToPlace(row: NearRow, mode: Mode): Place | null {
     weekendClosed,
     seats,
     capacity: Math.max(seats, people ? Math.trunc(people) : 40),
-    baseCrowd: 0.3,
     indoorCool,
     indoorHeat,
     humidity: 50,

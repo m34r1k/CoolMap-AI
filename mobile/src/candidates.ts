@@ -335,7 +335,6 @@ function poiToPlace(poi: Poi, j: Judgment, mode: Mode): Place {
     weekendClosed,
     seats: 30,
     capacity: 80,
-    baseCrowd: 0.4,
     indoorCool: indoor(category, "cooling"),
     indoorHeat: indoor(category, "heating"),
     humidity: 50,

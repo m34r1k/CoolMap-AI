@@ -14,7 +14,7 @@ from PySide6.QtWidgets import QApplication
 
 from coolmap import providers
 from coolmap.config import AppState
-from coolmap.theme import UI_FONT
+from coolmap.theme import BIG_TEXT_SCALE, UI_FONT, fpx, set_font_scale
 from coolmap.ui.window import MainWindow
 
 
@@ -25,11 +25,13 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("CoolMap AI")
     app.setOrganizationName("CoolMap")
-    base_font = QFont(UI_FONT)
-    base_font.setPixelSize(14)
-    app.setFont(base_font)
 
     state = AppState()
+    # '큰 글씨' 는 화면을 만들기 전에 정해야 모든 글꼴에 적용된다
+    set_font_scale(BIG_TEXT_SCALE if state.get("big_text") else 1.0)
+    base_font = QFont(UI_FONT)
+    base_font.setPixelSize(fpx(15))
+    app.setFont(base_font)
     window = MainWindow(state)
     window.show()
     code = app.exec()

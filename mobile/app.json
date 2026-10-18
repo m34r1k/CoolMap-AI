@@ -5,7 +5,7 @@
     "version": "0.2.5",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "automatic",
     "ios": {
       "bundleIdentifier": "com.m34r1k.coolmap",
       "buildNumber": "3",

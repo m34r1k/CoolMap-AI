@@ -25,7 +25,7 @@ from ..config import MARKER_ARROW, AppState
 from ..geo import TILE_SIZE, resolution
 from ..models import Place
 from ..theme import Palette
-from .common import crowd_color, mono, ui_font
+from .common import mono, nuisance_color, ui_font
 
 MIN_ZOOM = 12.0
 MAX_ZOOM = 18.6
@@ -42,7 +42,7 @@ LABEL_PAD = 4
 
 @lru_cache(maxsize=None)
 def _label_fonts() -> tuple[QFont, QFont, QFontMetrics, QFontMetrics]:
-    name, meta = ui_font(11, QFont.Bold), mono(9, QFont.DemiBold, 0.8)
+    name, meta = ui_font(12, QFont.Bold), ui_font(11, QFont.DemiBold)
     return name, meta, QFontMetrics(name), QFontMetrics(meta)
 
 
@@ -70,7 +70,6 @@ class MapCanvas(QWidget):
         self._palette: Palette = state.palette
         self._analyses: dict[str, Analysis] = {}
         self._places: list[Place] = []
-        self._events: list = []
         self._selected: str | None = None
         self._hover: str | None = None
 
@@ -113,16 +112,15 @@ class MapCanvas(QWidget):
         self._timer.start(40)
 
     # -- 데이터 ----------------------------------------------------------
-    def set_data(self, analyses: list[Analysis], events: list) -> None:
+    def set_data(self, analyses: list[Analysis]) -> None:
         self._analyses = {a.place.id: a for a in analyses}
         self._places = [a.place for a in analyses]
-        self._events = events
         self._data_ver += 1
         self.update()
 
     def apply_palette(self, p: Palette) -> None:
         self._palette = p
-        self.tiles.set_mode(p.key)
+        self.tiles.set_mode(p.key, p.dark)
         self.update()
 
     def set_selected(self, place_id: str | None) -> None:
@@ -335,8 +333,6 @@ class MapCanvas(QWidget):
         self._clamp = QRectF(self.rect())
 
         self._draw_tiles(p, pal)
-        if self.state.get("show_event_zones"):
-            self._draw_events(p, pal)
 
         self._draw_markers(p, pal)
         self._draw_user(p, pal)
@@ -373,34 +369,6 @@ class MapCanvas(QWidget):
                 p.drawPixmap(QRectF(sx, sy, size + 1, size + 1), pm,
                              QRectF(0, 0, TILE_SIZE, TILE_SIZE))
         self._tiles_missing = missing
-
-    def _draw_events(self, p: QPainter, pal: Palette) -> None:
-        mpp = self.meters_per_pixel()
-        if mpp <= 0:
-            return
-        for ev in self._events:
-            c = self._pt(ev.lat, ev.lon)
-            r = ev.radius / mpp
-            if r < 8:
-                continue
-            grad = QRadialGradient(c, r)
-            c1 = QColor(pal.warn)
-            c1.setAlpha(44)
-            grad.setColorAt(0.0, c1)
-            c2 = QColor(pal.warn)
-            c2.setAlpha(0)
-            grad.setColorAt(1.0, c2)
-            p.setPen(Qt.NoPen)
-            p.setBrush(grad)
-            p.drawEllipse(c, r, r)
-
-            pen = QPen(QColor(pal.warn))
-            pen.setWidthF(1.5)
-            pen.setStyle(Qt.DashLine)
-            p.setPen(pen)
-            p.setBrush(Qt.NoBrush)
-            pulse = 1.0 + math.sin(self._phase * 1.4) * 0.012
-            p.drawEllipse(c, r * pulse, r * pulse)
 
     # ------------------------------------------------------------------
     def _building_for(self, place: Place) -> dict | None:
@@ -440,7 +408,7 @@ class MapCanvas(QWidget):
         s = self.state
         dpr = self.devicePixelRatioF()
         key = (self._zoom, self.width(), self.height(), dpr, self._data_ver,
-               self._selected, self._hover, pal.key,
+               self._selected, self._hover, pal.key, pal.dark,
                s.get("show_closed"), s.get("map_labels"), s.get("marker_style"))
         view = QRectF(self._ox, self._oy, self.width(), self.height())
         if (self._layer is not None and key == self._layer_key
@@ -483,7 +451,7 @@ class MapCanvas(QWidget):
             a = self._analyses.get(place.id)
             if a is None:
                 continue
-            if not self.state.get("show_closed") and not a.crowd.open_now:
+            if not self.state.get("show_closed") and not a.open_now:
                 continue
             if cull is not None and not cull.contains(self._pt(place.lat, place.lon)):
                 continue
@@ -502,7 +470,7 @@ class MapCanvas(QWidget):
                 self._zone(QRectF(anchor.x() - 16, anchor.y() - 16, 32, 32), place.id)
 
     def _accent_for(self, pal: Palette, a: Analysis) -> QColor:
-        return QColor(pal.text_mute) if not a.crowd.open_now else QColor(pal.accent)
+        return QColor(pal.text_mute) if not a.open_now else QColor(pal.accent)
 
     @staticmethod
     def _outline_pen(color: QColor, width: float, guess: bool) -> QPen:
@@ -668,7 +636,7 @@ class MapCanvas(QWidget):
             p.setBrush(color)
             p.setPen(Qt.NoPen)
             p.drawRoundedRect(badge, 9, 9)
-            p.setPen(QColor(pal.accent_ink) if a.crowd.open_now else QColor(pal.bg))
+            p.setPen(QColor(pal.accent_ink) if a.open_now else QColor(pal.bg))
             p.setFont(mono(9, QFont.Bold))
             p.drawText(badge, Qt.AlignCenter, place.floor_hint)
 
@@ -678,8 +646,8 @@ class MapCanvas(QWidget):
     def _draw_label(self, p: QPainter, pal: Palette, place: Place, a: Analysis,
                     anchor: QPointF, taken: list[QRectF],
                     selected: bool, hovered: bool) -> None:
-        meta = (f"{a.indoor:.0f}°C · 민폐도 {a.nuisance.score}"
-                if a.crowd.open_now else "운영 종료")
+        meta = (f"지금 열림 · 걸어서 {max(1, a.walk_min)}분"
+                if a.open_now else "문 닫음")
         if place.ai_guess:
             # 공식 쉼터가 아니라는 사실이 라벨만 보고도 드러나야 한다
             meta = f"AI 추정 · {meta}"
@@ -719,8 +687,8 @@ class MapCanvas(QWidget):
                       w: float, h: float, selected: bool, hovered: bool) -> QPixmap:
         """라벨 상자 한 장. 내용이 같으면 그려 둔 것을 다시 쓴다."""
         dpr = self.devicePixelRatioF()
-        key = (place.id, place.name, place.icon, place.ai_guess, meta, w, pal.key, dpr,
-               selected, hovered, a.crowd.open_now, a.nuisance.key, a.crowd.by_event)
+        key = (place.id, place.name, place.icon, place.ai_guess, meta, w, pal.key, pal.dark, dpr,
+               selected, hovered, a.open_now, a.nuisance.key)
         pm = self._sprites.get(key)
         if pm is not None:
             return pm
@@ -761,11 +729,8 @@ class MapCanvas(QWidget):
                    Qt.AlignVCenter | Qt.AlignLeft, meta)
 
         p.setPen(Qt.NoPen)
-        p.setBrush(crowd_color(pal, a.nuisance.key))
+        p.setBrush(nuisance_color(pal, a.nuisance.key))
         p.drawEllipse(QPointF(rect.right() - 12, rect.top() + 13), 3.6, 3.6)
-        if a.crowd.by_event:
-            p.setBrush(QColor(pal.warn))
-            p.drawEllipse(QPointF(rect.right() - 12, rect.top() + 26), 3.0, 3.0)
         p.end()
 
         if len(self._sprites) > 600:

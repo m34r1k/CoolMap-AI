@@ -61,7 +61,6 @@ class Place:
     # 규모 / 환경
     seats: int = 60
     capacity: int = 200
-    base_crowd: float = 0.35
     indoor_cool: float = 24.0       # 냉방 모드 실내 온도
     indoor_heat: float = 22.0       # 난방 모드 실내 온도
     humidity: int = 45
@@ -115,41 +114,6 @@ class Place:
             return None
         end = self.open_to if self.open_to > hour else self.open_to + 24
         return int((end - hour) * 60 - minute)
-
-
-@dataclass
-class Event:
-    id: str
-    title: str
-    lat: float
-    lon: float
-    radius: float          # 영향 반경 (미터)
-    start_hour: int
-    end_hour: int
-    boost: float
-    modes: tuple[str, ...]
-    note: str
-    weekend_only: bool = False
-
-    @property
-    def latlon(self) -> tuple[float, float]:
-        return self.lat, self.lon
-
-    def active(self, hour: int, weekday: int, mode: str) -> bool:
-        if mode not in self.modes:
-            return False
-        if self.weekend_only and weekday < 5:
-            return False
-        return self.start_hour <= hour < self.end_hour
-
-    def influence(self, latlon: tuple[float, float]) -> float:
-        """장소가 이벤트 영향권에 든 정도 0..1."""
-        from .geo import haversine
-
-        dist = haversine(latlon, self.latlon)
-        if dist >= self.radius:
-            return 0.0
-        return 1.0 - (dist / self.radius) ** 1.4
 
 
 @dataclass

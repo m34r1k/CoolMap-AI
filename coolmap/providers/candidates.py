@@ -308,7 +308,6 @@ def _poi_to_place(poi: dict, judgment: dict, mode: str) -> Place:
         ai_confidence=conf,
         seats=30,
         capacity=80,
-        base_crowd=0.4,
         indoor_cool=_indoor(category, COOLING),
         indoor_heat=_indoor(category, HEATING),
         humidity=50,
