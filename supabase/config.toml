@@ -5,7 +5,7 @@
 # 이 파일이 없으면 자동 배포가 검사를 켠 기본값으로 함수를 다시 올린다.
 #   - weather · ai : 누구나 부르는 공개 함수 (ai 는 IP 별 호출 한도로 막는다)
 #   - sync-shelters: pg_cron 이 x-sync-secret 헤더를 붙여 부른다
-#   - route: 누구나 부르는 공개 함수 (IP 별 호출 한도로 막는다)
+#   - route · report: 누구나 부르는 공개 함수 (IP 별 한도로 막는다)
 
 project_id = "kgquzsmtjrlneveddaqv"
 
@@ -19,4 +19,7 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.route]
+verify_jwt = false
+
+[functions.report]
 verify_jwt = false

@@ -12,10 +12,21 @@ from collections.abc import Callable
 
 from PySide6.QtCore import Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QFont
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QDialog,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QSizePolicy,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ..ai import Analysis
-from ..plain import directions_url, open_line, stay_line, tags, temp_line, walk_line
+from .. import icons, providers
+from ..plain import REPORT_KINDS, directions_url, open_line, report_line, stay_line, tags, temp_line, walk_line
 from ..theme import Palette
 from .common import ClickableCard, IconButton, IconLabel, elide, ui_font
 
@@ -54,6 +65,70 @@ def tag_label(text: str, tone: str, p: Palette) -> QLabel:
     lab.setFont(ui_font(13, QFont.Bold))
     lab.setStyleSheet(f"color: {color}; border: 2px solid {color}; border-radius: 9px; padding: 2px 8px;")
     return lab
+
+
+class ReportDialog(QDialog):
+    """'어떤 문제가 있나요?' — 큰 버튼으로 고른다 (mobile/src/components/Report.tsx)."""
+
+    def __init__(self, place_id: str, name: str, p: Palette, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setWindowTitle("쉼터 문제 알리기")
+        self.setMinimumWidth(420)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(22, 20, 22, 20)
+        lay.setSpacing(10)
+        title = QLabel("어떤 문제가 있나요?")
+        title.setFont(ui_font(20, QFont.ExtraBold))
+        sub = QLabel(name)
+        sub.setFont(ui_font(15))
+        sub.setWordWrap(True)
+        sub.setStyleSheet(f"color: {p.text_dim};")
+        lay.addWidget(title)
+        lay.addWidget(sub)
+        for kind, label, _ in REPORT_KINDS:
+            b = QPushButton(f"  {label}")
+            b.setIcon(icons.qicon("siren", 22, p.bad))
+            b.setMinimumHeight(56)
+            b.setFont(ui_font(17, QFont.Bold))
+            b.setStyleSheet("text-align: left; padding-left: 16px;")
+            b.setCursor(Qt.PointingHandCursor)
+            b.clicked.connect(lambda _=False, k=kind: self._send(place_id, k))
+            lay.addWidget(b)
+        cancel = QPushButton("취소")
+        cancel.setMinimumHeight(48)
+        cancel.setFont(ui_font(16, QFont.Bold))
+        cancel.clicked.connect(self.reject)
+        lay.addWidget(cancel)
+
+    def _send(self, place_id: str, kind: str) -> None:
+        providers.report_provider().add(place_id, kind)     # 결과 안내는 메인 창이 띄운다
+        self.accept()
+
+
+class SirenButton(QToolButton):
+    """사이렌 아이콘 + '알리기'. 누르면 제보 창이 뜬다."""
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._pid, self._name = "", ""
+        self._pal: Palette | None = None
+        self.setText("알리기")
+        self.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+        self.setIconSize(icons.icon_size(28))
+        self.setFont(ui_font(12, QFont.Bold))
+        self.setCursor(Qt.PointingHandCursor)
+        self.setToolTip("이 쉼터에 문제가 있으면 알려 주세요")
+        self.setAutoRaise(True)
+        self.clicked.connect(self._open)
+
+    def set_place(self, place_id: str, name: str, p: Palette) -> None:
+        self._pid, self._name, self._pal = place_id, name, p
+        self.setIcon(icons.qicon("siren", 28, p.bad))
+        set_style(self, f"QToolButton {{ color: {p.bad}; border: none; background: transparent; padding: 2px; }}")
+
+    def _open(self) -> None:
+        if self._pid and self._pal:
+            ReportDialog(self._pid, self._name, self._pal, self.window()).exec()
 
 
 class InfoLine(QWidget):
@@ -106,6 +181,8 @@ class TopCard(ClickableCard):
         names.addWidget(self.category)
         head.addWidget(self.cat_frame, 0, Qt.AlignTop)
         head.addLayout(names, 1)
+        self.siren = SirenButton()
+        head.addWidget(self.siren, 0, Qt.AlignTop)
         self.close_btn = IconButton("close", 36, 16, tooltip="닫기")
         self.close_btn.clicked.connect(self.closeRequested.emit)
         self.close_btn.setVisible(closable)
@@ -116,11 +193,12 @@ class TopCard(ClickableCard):
         self.tags.setSpacing(6)
         lay.addLayout(self.tags)
 
+        self.report = InfoLine("siren")
         self.walk = InfoLine("walk")
         self.open = InfoLine("clock")
         self.temp = InfoLine("thermo")
         self.stay = InfoLine("star")
-        for w in (self.walk, self.open, self.temp, self.stay):
+        for w in (self.report, self.walk, self.open, self.temp, self.stay):
             lay.addWidget(w)
 
         btns = QHBoxLayout()
@@ -174,6 +252,11 @@ class TopCard(ClickableCard):
             self.tags.addWidget(tag_label(text, tone, p))
         self.tags.addStretch(1)
 
+        self.siren.set_place(a.place.id, a.place.name, p)
+        r = providers.report_provider().get(a.place.id)
+        self.report.setVisible(bool(r))
+        if r:
+            self.report.set(report_line(r), p.bad)
         self.walk.set(walk_line(a), p.text, p.text_dim)
         self.open.set(open_line(a, hour, minute, weekday), p.good if open_ else p.text_mute)
         self.temp.set(temp_line(a), p.text, p.text_dim)
@@ -242,6 +325,8 @@ class PlaceRow(QFrame):
         status = (f"<span style='color:{p.good}; font-weight:700'>지금 열림</span>" if open_
                   else f"<span style='color:{p.text_mute}; font-weight:700'>문 닫음</span>")
         guess = f" · <span style='color:{p.warn}'>AI 추정</span>" if a.place.ai_guess else ""
+        if providers.report_provider().get(a.place.id):
+            guess += f" · <span style='color:{p.bad}; font-weight:700'>제보 있음</span>"
         self.meta.setText(f"<span style='color:{p.text_dim}'>걸어서 {max(1, a.walk_min)}분 · </span>"
                           f"{status}<span style='color:{p.text_dim}'>{guess}</span>")
         self.sub.setVisible(not open_)

@@ -373,6 +373,7 @@ class MapView(QWidget):
         ranked = nearest_first(analyses) if self._sort == "near" else rank(analyses)
         # 목록은 앞쪽 40곳만 (지도에는 모두 표시된다). 줄마다 위젯이라 많으면 화면 전환이 느려진다
         shown = ranked[:LIST_LIMIT]
+        providers.report_provider().want([a.place.id for a in shown] + list(state.favorites))
         open_ = sum(1 for a in analyses if a.open_now)
         self.count.setText(f"{len(ranked)}곳 · 지금 열림 {open_}곳")
         self.count.setStyleSheet(f"color: {p.good if open_ else p.text_mute};")

@@ -111,3 +111,26 @@ export function walkRoute(from: [number, number], to: [number, number], toName: 
     30_000,
   );
 }
+
+// -- 쉼터 제보 (supabase/functions/report) -----------------------------------------
+
+export type ReportKind = "closed" | "gone" | "no_hvac";
+export type Report = { kind: ReportKind; at: string; count: number };
+
+/** 이 쉼터에 문제가 있다고 알린다. 같은 쉼터에 10분 안에 다시 알리면 서버가 거절한다. */
+export async function reportShelter(placeId: string, kind: ReportKind): Promise<void> {
+  await request<{ ok: boolean }>("/functions/v1/report", {
+    method: "POST",
+    body: JSON.stringify({ task: "add", place_id: placeId, kind }),
+  });
+}
+
+/** 최근 48시간 제보 (쉼터별 가장 최근 제보와 건수) */
+export async function recentReports(placeIds: string[]): Promise<Record<string, Report>> {
+  if (!placeIds.length) return {};
+  const d = await request<{ reports: Record<string, Report> }>("/functions/v1/report", {
+    method: "POST",
+    body: JSON.stringify({ task: "recent", place_ids: placeIds.slice(0, 300) }),
+  });
+  return d.reports ?? {};
+}

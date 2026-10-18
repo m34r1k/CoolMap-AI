@@ -15,7 +15,7 @@ import {
 } from "react";
 
 import { type Analysis, analyze, type Now, nowParts, type Weather, weatherFromObs } from "./analysis";
-import { sheltersNear, weather as fetchWeather } from "./backend";
+import { recentReports, type Report, type ReportKind, reportShelter, sheltersNear, weather as fetchWeather } from "./backend";
 import { mergeCandidates, nearbyCandidates } from "./candidates";
 import { haversine, walkMinutes } from "./geo";
 import { onNuisance } from "./nuisance";
@@ -97,6 +97,10 @@ type Store = {
   isFavorite: (id: string) => boolean;
   toggleFavorite: (p: Place) => void;
   reload: () => void;
+  /** 최근 48시간 이용자 제보 (쉼터 id → 가장 최근 제보) */
+  reports: Record<string, Report>;
+  /** 쉼터에 문제가 있다고 알린다. 실패하면 쉬운 말 오류를 던진다 */
+  report: (placeId: string, kind: ReportKind) => Promise<void>;
 };
 
 const Ctx = createContext<Store | null>(null);
@@ -347,6 +351,38 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [settings.favorites, update],
   );
 
+  // -- 이용자 제보 -------------------------------------------------------------
+  // 화면에 나오는 쉼터와 자주 가는 곳의 제보만 받는다. id 목록이 그대로면 다시 받지 않는다.
+  const [reports, setReports] = useState<Record<string, Report>>({});
+  const [reportsTick, setReportsTick] = useState(0);
+  const idsKey = useMemo(
+    () => [...new Set([...analyses.map((a) => a.place.id), ...settings.favorites.map((f) => f.id)])].sort().join(","),
+    [analyses, settings.favorites],
+  );
+  useEffect(() => {
+    if (!idsKey) return;
+    let alive = true;
+    const t = setTimeout(() => {
+      recentReports(idsKey.split(","))
+        .then((r) => alive && setReports(r))
+        .catch(() => {
+          // 제보를 못 받아도 앱은 그대로 쓸 수 있다
+        });
+    }, 600);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, [idsKey, reportsTick]);
+  useEffect(() => {
+    const iv = setInterval(() => setReportsTick((k) => k + 1), 5 * 60_000);
+    return () => clearInterval(iv);
+  }, []);
+  const report = useCallback(async (placeId: string, kind: ReportKind) => {
+    await reportShelter(placeId, kind);
+    setReportsTick((k) => k + 1);
+  }, []);
+
   const value: Store = {
     ready,
     settings,
@@ -375,6 +411,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     isFavorite,
     toggleFavorite,
     reload: () => setReloadKey((k) => k + 1),
+    reports,
+    report,
   };
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

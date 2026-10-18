@@ -10,6 +10,7 @@ import { categoryIcon, categoryLabel } from "../places";
 import { openLine, stayLine, tags, tempLine, walkLine } from "../plain";
 import { useStore } from "../store";
 import type { Palette } from "../theme";
+import { ReportNotice, SirenButton } from "./Report";
 import { BigButton, Icon, InfoLine, T, Tag } from "./ui";
 
 export function TopCard({
@@ -40,6 +41,7 @@ export function TopCard({
               {categoryLabel(a.place)}
             </T>
           </View>
+          <SirenButton placeId={a.place.id} placeName={a.place.name} p={p} />
           {onClose && (
             <Pressable onPress={onClose} hitSlop={14} accessibilityLabel="닫기">
               <Icon name="close" size={26} color={p.textMute} />
@@ -54,6 +56,7 @@ export function TopCard({
           </View>
         )}
         <View style={{ gap: 8 }}>
+          <ReportNotice placeId={a.place.id} p={p} />
           <InfoLine icon="walk" text={walkLine(a)} p={p} />
           <InfoLine
             icon="clock-outline"
@@ -109,6 +112,11 @@ export function PlaceRow({ a, p, onPress }: { a: Analysis; p: Palette; onPress: 
             {open ? "지금 열림" : "문 닫음"}
           </T>
           {a.place.aiGuess ? " · AI 추정" : ""}
+          {s.reports[a.place.id] && (
+            <T size={14} weight="700" color={p.bad}>
+              {" "}· 제보 있음
+            </T>
+          )}
         </T>
         {!open && (
           <T size={13} color={p.textMute} numberOfLines={1}>

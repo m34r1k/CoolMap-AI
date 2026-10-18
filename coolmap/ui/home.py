@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import icons
+from .. import icons, providers
 from ..ai import analyze, live_weather
 from ..catalog import find_by_id
 from ..config import AppState
@@ -191,6 +191,7 @@ class HomeView(QWidget):
         self.modes.refresh()
 
         items = nearest_first(nearby(state))
+        providers.report_provider().want([a.place.id for a in items[:40]] + list(state.favorites))
         self.best_title.setText(f"가장 가까운 {SHELTER_WORD[state.mode]}")
         if items:
             best = items[0]

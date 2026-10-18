@@ -98,3 +98,26 @@ export function iGa(word: string): string {
   if (c >= 0xac00 && c <= 0xd7a3) return word + ((c - 0xac00) % 28 ? "이" : "가");
   return `${word}가`;
 }
+
+/** 제보 종류 — 사이렌 버튼을 누르면 고르는 문제 */
+export const REPORT_KINDS: { kind: "closed" | "gone" | "no_hvac"; label: string; past: string; icon: string }[] = [
+  { kind: "closed", label: "문이 닫혀 있어요", past: "문이 닫혀 있었어요", icon: "door-closed-lock" },
+  { kind: "gone", label: "쉼터가 없어졌어요", past: "쉼터가 없어졌어요", icon: "map-marker-remove-outline" },
+  { kind: "no_hvac", label: "냉난방이 안 돼요", past: "냉난방이 안 됐어요", icon: "thermometer-alert" },
+];
+
+/** '3시간 전' 같은 쉬운 시간 */
+export function agoWord(iso: string, now = Date.now()): string {
+  const min = Math.max(0, Math.round((now - new Date(iso).getTime()) / 60_000));
+  if (min < 1) return "방금";
+  if (min < 60) return `${min}분 전`;
+  const h = Math.round(min / 60);
+  if (h < 24) return `${h}시간 전`;
+  return `${Math.round(h / 24)}일 전`;
+}
+
+/** 최근 제보 한 줄. 예) '3시간 전 이용자 제보: 문이 닫혀 있었어요 (2건)' */
+export function reportLine(r: { kind: string; at: string; count: number }): string {
+  const what = REPORT_KINDS.find((k) => k.kind === r.kind)?.past ?? "문제가 있었어요";
+  return `${agoWord(r.at)} 이용자 제보: ${what}${r.count > 1 ? ` (${r.count}건)` : ""}`;
+}

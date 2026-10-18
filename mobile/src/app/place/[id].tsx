@@ -7,6 +7,7 @@ import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { stayLabel } from "../../analysis";
+import { ReportNotice, SirenButton } from "../../components/Report";
 import { BigButton, Card, Gauge, Icon, InfoLine, MeterBar, T, Tag } from "../../components/ui";
 import { categoryIcon, categoryLabel, hoursLabel } from "../../places";
 import { openLine, stayLine, tags, tempCompare, tempLine, walkLine } from "../../plain";
@@ -53,9 +54,10 @@ export default function Detail() {
 
       <View style={styles.row}>
         <Icon name={categoryIcon(place)} size={22} color={p.accent} />
-        <T size={16} weight="700" color={p.accent}>
+        <T size={16} weight="700" color={p.accent} style={styles.fill}>
           {categoryLabel(place)}
         </T>
+        <SirenButton placeId={place.id} placeName={place.name} p={p} />
       </View>
       <T size={27} weight="800" color={p.text}>
         {place.name}
@@ -82,6 +84,7 @@ export default function Detail() {
       />
 
       <Card p={p} style={styles.infoCard}>
+        <ReportNotice placeId={place.id} p={p} />
         <InfoLine icon="walk" text={walkLine(a)} p={p} />
         <InfoLine icon="clock-outline" text={openLine(a, s.now)} p={p} color={open ? p.good : p.textMute} />
         <T size={14} color={p.textDim} style={styles.indent}>

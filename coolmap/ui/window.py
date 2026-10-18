@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMessageBox,
     QPushButton,
     QStackedWidget,
     QVBoxLayout,
@@ -224,6 +225,11 @@ class MainWindow(QMainWindow):
         self._clock.timeout.connect(self._tick_clock)
         self._clock.start(30000)
 
+        # 이용자 제보 — 내용이 바뀌었을 때만 updated 가 온다
+        self.reports = providers.report_provider()
+        self.reports.updated.connect(self.refresh_all)
+        self.reports.added.connect(self._on_report_added)
+
         # '길찾기' 는 앱 안 길 안내(지도 화면)로 연다
         set_route_handler(self.start_route)
 
@@ -342,6 +348,13 @@ class MainWindow(QMainWindow):
 
     def _back(self) -> None:
         self.navigate(self._last_section)
+
+    def _on_report_added(self, ok: bool, msg: str) -> None:
+        if ok:
+            QMessageBox.information(self, "알려 주셔서 고마워요", msg)
+            self.refresh_current()      # 다음 want() 에서 내 제보를 바로 받아 온다
+        else:
+            QMessageBox.warning(self, "알리지 못했어요", msg)
 
     def start_route(self, pid: str) -> None:
         self.navigate("map")

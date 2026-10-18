@@ -70,6 +70,22 @@ def _chat(p: QPainter) -> None:
     _fill(p, dot)
 
 
+@_reg("siren")
+def _siren(p: QPainter) -> None:
+    """쉼터 제보 — 경광등 (둥근 몸통 · 받침 · 빛줄기)."""
+    dome = QPainterPath(QPointF(6.5, 18))
+    dome.lineTo(6.5, 13.5)
+    dome.cubicTo(6.5, 10.2, 9, 8, 12, 8)
+    dome.cubicTo(15, 8, 17.5, 10.2, 17.5, 13.5)
+    dome.lineTo(17.5, 18)
+    _stroke(p, dome)
+    _stroke(p, _path((4.5, 20.5), (19.5, 20.5)))
+    _stroke(p, _path((4.5, 18), (19.5, 18)))
+    _stroke(p, _path((12, 2.5), (12, 4.8)))
+    _stroke(p, _path((4.2, 5.6), (5.8, 7.2)))
+    _stroke(p, _path((19.8, 5.6), (18.2, 7.2)))
+
+
 @_reg("map")
 def _map(p: QPainter) -> None:
     _stroke(p, _path((2.5, 6.5), (9, 4), (15, 7), (21.5, 4.5), (21.5, 17.5),

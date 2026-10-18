@@ -139,3 +139,35 @@ def nearby(state) -> list[Analysis]:
     if state.get("only_official"):
         out = [a for a in out if a.place.official]
     return [a for a in out if a.walk_min <= int(state.get("max_walk"))]
+
+
+#: 제보 종류 — 사이렌 버튼을 누르면 고르는 문제 (mobile/src/plain.ts 와 같다)
+REPORT_KINDS = [
+    ("closed", "문이 닫혀 있어요", "문이 닫혀 있었어요"),
+    ("gone", "쉼터가 없어졌어요", "쉼터가 없어졌어요"),
+    ("no_hvac", "냉난방이 안 돼요", "냉난방이 안 됐어요"),
+]
+
+
+def ago_word(iso: str) -> str:
+    """'3시간 전' 같은 쉬운 시간."""
+    from datetime import datetime, timezone
+
+    try:
+        at = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+    except ValueError:
+        return ""
+    minutes = max(0, round((datetime.now(timezone.utc) - at).total_seconds() / 60))
+    if minutes < 1:
+        return "방금"
+    if minutes < 60:
+        return f"{minutes}분 전"
+    hours = round(minutes / 60)
+    return f"{hours}시간 전" if hours < 24 else f"{round(hours / 24)}일 전"
+
+
+def report_line(r: dict) -> str:
+    """최근 제보 한 줄. 예) '3시간 전 이용자 제보: 문이 닫혀 있었어요 (2건)'"""
+    what = next((past for kind, _, past in REPORT_KINDS if kind == r.get("kind")), "문제가 있었어요")
+    count = int(r.get("count") or 1)
+    return f"{ago_word(str(r.get('at', '')))} 이용자 제보: {what}" + (f" ({count}건)" if count > 1 else "")
