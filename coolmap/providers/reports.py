@@ -10,7 +10,6 @@ mobile/src/backend.ts 의 reportShelter · recentReports 와 같은 서버를 �
 
 from __future__ import annotations
 
-import json
 import threading
 import time
 import urllib.error
@@ -76,11 +75,7 @@ class ReportProvider(QObject):
 
     @staticmethod
     def _http_error(exc: urllib.error.HTTPError) -> str:
-        try:
-            msg = json.loads(exc.read().decode("utf-8")).get("error", "")
-        except Exception:
-            msg = ""
-        return msg or f"서버 응답 {exc.code}"
+        return backend.error_message(exc)
 
     def _add(self, place_id: str, kind: str, device: str) -> None:
         try:

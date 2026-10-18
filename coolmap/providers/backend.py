@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -77,3 +78,18 @@ def _get(full_url: str, headers: dict | None, timeout: float,
         if r.headers.get("Content-Encoding") == "gzip":
             raw = gzip.decompress(raw)
         return json.loads(raw.decode("utf-8")), dict(r.headers)
+
+
+def error_message(exc: urllib.error.HTTPError) -> str:
+    """서버가 돌려준 오류 문구 (예: '이미 알려 주셨어요'). 없으면 '서버 응답 429' 처럼 쓴다.
+
+    요청에 gzip 을 허용하므로 오류 본문도 압축돼 올 수 있다 — 풀지 않으면 문구를 읽지 못한다.
+    """
+    try:
+        raw = exc.read()
+        if (exc.headers.get("Content-Encoding") or "").lower() == "gzip":
+            raw = gzip.decompress(raw)
+        msg = json.loads(raw.decode("utf-8")).get("error", "")
+    except Exception:
+        msg = ""
+    return msg or f"서버 응답 {exc.code}"

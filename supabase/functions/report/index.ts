@@ -11,8 +11,9 @@
 //        · 아니면 가장 최근 문제 제보의 kind · at 과, 마지막 'ok' 이후 문제 제보 건수
 //
 // 공개 키만 있으면 누구나 부를 수 있으므로:
-//   · 같은 IP 나 같은 기기가 같은 쉼터에 10분 안에 다시 제보하면 받지 않는다
-//   · IP 당 시간당 20건까지만 받는다
+//   · 같은 기기가 같은 쉼터에 같은 종류를 10분 안에 다시 제보하면 받지 않는다
+//     (IP 로 막으면 쉼터 와이파이를 같이 쓰는 여러 사람이 서로 막힌다)
+//   · IP 당 시간당 IP_PER_HOUR 건까지만 받는다 (장난 제보 방지)
 //   · 장소 id · 종류 · 기기 표식은 허용된 형식만 받는다
 //   · 기기 표식은 해시로만 저장하고, 취소는 그 해시가 맞을 때만 된다
 
@@ -22,7 +23,7 @@ const KINDS = new Set(["closed", "gone", "no_hvac", "ok"]);
 const PLACE_ID = /^([HC][0-9]{1,12}|G[nwr][0-9]{1,15})$/;
 const DEVICE = /^[A-Za-z0-9-]{16,64}$/;
 const SAME_PLACE_MIN = 10;
-const IP_PER_HOUR = 20;
+const IP_PER_HOUR = 40; // 쉼터 와이파이처럼 여러 사람이 한 IP 를 쓰는 경우를 생각해 넉넉히
 const RECENT_HOURS = 48;
 const MAX_IDS = 300;
 
@@ -54,7 +55,7 @@ async function add(ip: string, body: Record<string, unknown>) {
   const device = await deviceHash(body.device);
 
   const same = await db.from("shelter_reports").select("id", { count: "exact", head: true })
-    .eq("place_id", placeId).gt("at", ago(SAME_PLACE_MIN)).or(`ip.eq."${ip}",device.eq."${device}"`); // IP 의 점 · 콜론이 구분자로 읽히지 않게 따옴표로 감싼다
+    .eq("place_id", placeId).eq("device", device).eq("kind", kind).gt("at", ago(SAME_PLACE_MIN));
   if ((same.count ?? 0) > 0) throw new HttpError(429, "이미 알려 주셨어요. 고마워요!");
   const mine = await db.from("shelter_reports").select("id", { count: "exact", head: true })
     .eq("ip", ip).gt("at", ago(60));

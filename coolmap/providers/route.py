@@ -6,7 +6,6 @@ mobile/src/backend.ts 의 walkRoute 와 같은 서버를 쓴다. 키는 서버�
 
 from __future__ import annotations
 
-import json
 import urllib.error
 from concurrent.futures import ThreadPoolExecutor
 
@@ -45,11 +44,7 @@ class RouteProvider(QObject):
             self._cache[k] = data
             self.ready.emit(k, data)
         except urllib.error.HTTPError as exc:
-            try:
-                msg = json.loads(exc.read().decode("utf-8")).get("error", "")
-            except Exception:
-                msg = ""
-            self.failed.emit(k, msg or f"서버 응답 {exc.code}")
+            self.failed.emit(k, backend.error_message(exc))
         except Exception as exc:
             self.failed.emit(k, "인터넷 연결을 확인해 주세요" if isinstance(exc, urllib.error.URLError) else str(exc))
 
