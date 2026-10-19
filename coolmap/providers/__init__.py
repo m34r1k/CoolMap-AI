@@ -15,6 +15,7 @@ _location = None
 _route = None
 _reports = None
 _alerts = None
+_chat = None
 
 
 def tile_provider():
@@ -106,8 +107,16 @@ def alert_provider():
     return _alerts
 
 
+def chat_provider():
+    global _chat
+    if _chat is None:
+        from .chat import ChatProvider
+        _chat = ChatProvider()
+    return _chat
+
+
 def shutdown_all() -> None:
-    for p in (_tiles, _weather, _buildings, _nuisance, _candidates, _location, _route, _reports, _alerts,
+    for p in (_tiles, _weather, _buildings, _nuisance, _candidates, _location, _route, _reports, _alerts, _chat,
               *_shelters.values()):
         if p is not None:
             try:

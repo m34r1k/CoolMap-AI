@@ -275,3 +275,34 @@ def alert_head(a: dict) -> str:
     """재난문자 머리줄. 예) '10분 전 · 호우 · 안전안내'."""
     kind = a.get("kind", "")
     return " · ".join(x for x in (ago_word(a.get("at", "")), kind if kind != "기타" else "", a.get("step", "")) if x)
+
+
+# -- 물어보기 (Gemini) — mobile/src/plain.ts chatContext ------------------------------
+def chat_context(state, analyses=None) -> dict:
+    """supabase/functions/chat 에 질문과 함께 보낼 '지금 상황'. 좌표는 보내지 않는다."""
+    from . import providers
+    from .ai import live_sky, live_weather
+
+    hour, minute, weekday = state.now()
+    items = nearest_first(analyses if analyses is not None else nearby(state))[:20]
+    reports = providers.report_provider()
+    places = []
+    for a in items:
+        r = reports.get(a.place.id)
+        places.append({
+            "id": a.place.id, "name": a.place.name, "category": a.place.category_label,
+            "kind": "공식 쉼터" if a.place.official else "AI 추정 (공식 아님)",
+            "walk": walk_line(a), "open": open_line(a, hour, minute, weekday),
+            "indoor": temp_line(a), "stay": stay_line(a),
+            "report": report_line(r) if r else "",
+        })
+    w = live_weather(state.mode, hour, minute, state.origin)
+    _, sky, hint = live_sky(state.origin)
+    alerts = [f"{alert_head(x)}: {x.get('text', '')}" for x in providers.alert_provider().get()[:3]]
+    return {
+        "mode": state.mode,
+        "now": f"{'월화수목금토일'[weekday]}요일 {hour:02d}:{minute:02d}",
+        "weather": {"temp": f"{w.outdoor:.0f}°C", "sky": sky, "hint": hint, "alert": w.alert},
+        "alerts": alerts,
+        "places": places,
+    }

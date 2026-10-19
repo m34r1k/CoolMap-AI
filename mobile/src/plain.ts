@@ -2,8 +2,8 @@
 // coolmap/plain.py 와 같은 문장을 쓴다 — 한쪽을 고치면 다른 쪽도 고친다.
 
 import { type Analysis, analysisDistance, type Now, stayLabel } from "./analysis";
-import type { SkyHour } from "./backend";
-import { closingIn } from "./places";
+import type { ChatContext, SkyHour } from "./backend";
+import { categoryLabel, closingIn } from "./places";
 import type { Mode } from "./theme";
 
 /** 모드를 부르는 쉬운 이름 */
@@ -192,4 +192,42 @@ export const alertUrgent = (step: string) => step.includes("위급") || step.inc
 /** 재난문자 머리줄. 예) '10분 전 · 호우 · 안전안내' */
 export function alertHead(a: { at: string; kind: string; step: string }): string {
   return [agoWord(a.at), a.kind && a.kind !== "기타" ? a.kind : "", a.step].filter(Boolean).join(" · ");
+}
+
+// -- 물어보기 (Gemini) — coolmap/plain.py chat_context --------------------------------
+
+/** supabase/functions/chat 에 질문과 함께 보낼 '지금 상황'. 가까운 20곳. 좌표는 보내지 않는다. */
+export function chatContext(
+  analyses: Analysis[],
+  mode: Mode,
+  now: Now,
+  weather: { outdoor: number; alert: string; live: boolean },
+  sky: { text: string; hint: string },
+  alerts: { at: string; kind: string; step: string; text: string }[],
+  reports: Record<string, { kind: string; at: string; count: number }>,
+): ChatContext {
+  return {
+    mode,
+    now: `${"월화수목금토일"[now.weekday]}요일 ${String(now.hour).padStart(2, "0")}:${String(now.minute).padStart(2, "0")}`,
+    weather: {
+      temp: weather.live ? `${weather.outdoor.toFixed(0)}°C` : "",
+      sky: sky.text,
+      hint: sky.hint,
+      alert: weather.live ? weather.alert : "",
+    },
+    alerts: alerts.slice(0, 3).map((a) => `${alertHead(a)}: ${a.text}`),
+    places: nearestFirst(analyses)
+      .slice(0, 20)
+      .map((a) => ({
+        id: a.place.id,
+        name: a.place.name,
+        category: categoryLabel(a.place),
+        kind: a.place.official ? "공식 쉼터" : "AI 추정 (공식 아님)",
+        walk: walkLine(a),
+        open: openLine(a, now),
+        indoor: tempLine(a),
+        stay: stayLine(a),
+        report: reports[a.place.id] ? reportLine(reports[a.place.id]) : "",
+      })),
+  };
 }

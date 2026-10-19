@@ -20,7 +20,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const KINDS = new Set(["closed", "gone", "no_hvac", "ok"]);
-const PLACE_ID = /^([HC][0-9]{1,12}|G[nwr][0-9]{1,15})$/;
+const PLACE_ID = /^([HC][0-9]{1,20}|G[nwr][0-9]{1,15})$/;
 const DEVICE = /^[A-Za-z0-9-]{16,64}$/;
 const SAME_PLACE_MIN = 10;
 const IP_PER_HOUR = 40; // 쉼터 와이파이처럼 여러 사람이 한 IP 를 쓰는 경우를 생각해 넉넉히

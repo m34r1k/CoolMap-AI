@@ -3,16 +3,18 @@
 
 import { router } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import type { Analysis } from "../../analysis";
 import { type ChatReply, greeting, respond, suggestions } from "../../assistant";
+import { askChat } from "../../backend";
 import { PlaceRow, TopCard } from "../../components/PlaceCard";
 import { Icon, RichText, T, useFontScale } from "../../components/ui";
+import { chatContext } from "../../plain";
 import { useStore } from "../../store";
 
-type Message = { id: number; from: "user" | "ai"; text: string; reply?: ChatReply };
+type Message = { id: number; from: "user" | "ai"; text: string; reply?: ChatReply; thinking?: boolean };
 
 const open = (a: Analysis) => router.push({ pathname: "/place/[id]", params: { id: a.place.id } });
 
@@ -36,18 +38,43 @@ export default function Chat() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 날씨가 갱신될 때마다 대화를 지우지 않는다
   }, [mode]);
 
-  const ask = (q: string) => {
+  // 누르기만 하면 되는 질문은 규칙으로 바로 답한다 (빠르고, AI 호출 한도를 아낀다).
+  // 직접 쓴 질문은 Gemini 에게 묻고, 한도 초과 · 인터넷 끊김이면 규칙 답으로 대신한다.
+  const ask = (q: string, quick = false) => {
     const text = q.trim();
     if (!text) return;
-    const reply = respond(text, s.analyses, mode, s.now, s.weather, s.sky);
     const userId = nextId.current++;
+    const aiId = nextId.current++;
     askedId.current = userId;
+    setInput("");
+    const rules = () => respond(text, s.analyses, mode, s.now, s.weather, s.sky);
+    if (quick) {
+      const reply = rules();
+      setMessages((m) => [...m, { id: userId, from: "user", text }, { id: aiId, from: "ai", text: reply.text, reply }]);
+      return;
+    }
+    // 직전 대화 두 쌍 — '거기 몇 시까지야?' 같은 이어지는 질문을 알아듣게
+    const history: { q: string; a: string }[] = [];
+    for (let i = 0; i + 1 < messages.length; i++) {
+      const [u, a] = [messages[i], messages[i + 1]];
+      if (u.from === "user" && a.from === "ai" && !a.thinking) history.push({ q: u.text, a: a.text });
+    }
     setMessages((m) => [
       ...m,
       { id: userId, from: "user", text },
-      { id: nextId.current++, from: "ai", text: reply.text, reply },
+      { id: aiId, from: "ai", text: "생각하고 있어요…", thinking: true },
     ]);
-    setInput("");
+    const ctx = chatContext(s.analyses, mode, s.now, s.weather, s.sky, s.alerts, s.reports);
+    const byId = new Map(s.analyses.map((a) => [a.place.id, a]));
+    askChat(text, ctx, history.slice(-2))
+      .then((d) => {
+        const places = d.place_ids.map((id) => byId.get(id)).filter((a): a is Analysis => !!a);
+        return { text: d.answer, places };
+      })
+      .catch(() => rules())
+      .then((reply) =>
+        setMessages((m) => m.map((x) => (x.id === aiId ? { id: aiId, from: "ai", text: reply.text, reply } : x))),
+      );
   };
 
   return (
@@ -61,7 +88,7 @@ export default function Chat() {
           물어보기
         </T>
         <T size={15} color={p.textDim}>
-          쉼터에 대해 궁금한 걸 물어보세요
+          쉼터 · 날씨 · 앱 쓰는 법을 물어보세요
         </T>
       </View>
 
@@ -86,6 +113,7 @@ export default function Chat() {
             </View>
           ) : (
             <View key={m.id} style={[styles.ai, { backgroundColor: p.card, borderColor: p.border }]}>
+              {m.thinking && <ActivityIndicator color={p.accent} style={{ alignSelf: "flex-start" }} />}
               <RichText
                 text={m.text}
                 style={{ fontSize: 17 * k, lineHeight: Math.round(17 * k * 1.5), color: p.text }}
@@ -104,7 +132,7 @@ export default function Chat() {
           {suggestions(mode).map((q) => (
             <Pressable
               key={q}
-              onPress={() => ask(q)}
+              onPress={() => ask(q, true)}
               style={({ pressed }) => [
                 styles.suggestion,
                 { borderColor: p.accent, backgroundColor: pressed ? p.accentSoft : p.card },

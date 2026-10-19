@@ -7,6 +7,7 @@
 #   - sync-shelters: pg_cron 이 x-sync-secret 헤더를 붙여 부른다
 #   - route · report: 누구나 부르는 공개 함수 (IP 별 한도로 막는다)
 #   - alerts       : 누구나 부르는 공개 함수 (재난문자는 5분에 한 번만 받아 캐시)
+#   - chat         : 누구나 부르는 공개 함수 (쉼터·날씨·앱 질문만, IP 별 · 전체 한도로 막는다)
 
 project_id = "kgquzsmtjrlneveddaqv"
 
@@ -26,4 +27,7 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.alerts]
+verify_jwt = false
+
+[functions.chat]
 verify_jwt = false

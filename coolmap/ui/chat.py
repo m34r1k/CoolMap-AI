@@ -22,9 +22,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import icons
+from .. import icons, providers
 from ..assistant import ChatReply, greeting, respond, suggestions
 from ..config import AppState
+from ..plain import chat_context, nearby
 from ..theme import Palette
 from .common import ui_font
 from .placecard import PlaceRow, TopCard
@@ -45,6 +46,12 @@ class ChatView(QWidget):
         super().__init__(parent)
         self.state = state
         self._mode: str | None = None
+        self._req = 0
+        self._pending: dict[int, tuple[str, QWidget]] = {}     # 요청 번호 → (질문, '생각 중' 말풍선)
+        self._history: list[dict] = []                         # 직전 대화 {q, a}
+        chat = providers.chat_provider()
+        chat.answered.connect(self._on_answered)
+        chat.failed.connect(self._on_failed)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -71,7 +78,7 @@ class ChatView(QWidget):
 
         title = QLabel("물어보기")
         title.setFont(ui_font(28, QFont.ExtraBold))
-        self.subtitle = QLabel("쉼터에 대해 궁금한 걸 물어보세요")
+        self.subtitle = QLabel("쉼터 · 날씨 · 앱 쓰는 법을 물어보세요")
         self.subtitle.setFont(ui_font(16))
         lay.addWidget(title)
         lay.addWidget(self.subtitle)
@@ -99,7 +106,7 @@ class ChatView(QWidget):
             b.setCursor(Qt.PointingHandCursor)
             b.setMinimumHeight(44)
             b.setFont(ui_font(15, QFont.Bold))
-            b.clicked.connect(lambda _=False, btn=b: self.send(btn.text()))
+            b.clicked.connect(lambda _=False, btn=b: self.send(btn.text(), quick=True))
             self.quick.addWidget(b, i // 3, i % 3)
             self.quick_buttons.append(b)
         il.addLayout(self.quick)
@@ -141,7 +148,7 @@ class ChatView(QWidget):
         h.addWidget(lab)
         return wrap
 
-    def _bubble_ai(self, reply: ChatReply) -> QWidget:
+    def _bubble_ai(self, reply: ChatReply, thinking: bool = False) -> QWidget:
         p = self.state.palette
         box = QFrame()
         box.setObjectName("card")
@@ -149,10 +156,13 @@ class ChatView(QWidget):
         v.setContentsMargins(18, 16, 18, 16)
         v.setSpacing(12)
         lab = QLabel(_rich(reply.text, p.accent))
+        if thinking:
+            lab.setStyleSheet(f"color: {p.text_dim};")
         lab.setTextFormat(Qt.RichText)
         lab.setWordWrap(True)
         lab.setFont(ui_font(17))
-        lab.setStyleSheet("line-height: 150%;")
+        if not thinking:
+            lab.setStyleSheet("line-height: 150%;")
         v.addWidget(lab)
         for i, a in enumerate(reply.places):
             if i == 0:
@@ -173,18 +183,52 @@ class ChatView(QWidget):
             if item.widget():
                 item.widget().deleteLater()
         self.messages.addWidget(self._bubble_ai(greeting(self.state)))
+        self._pending.clear()
+        self._history.clear()
 
-    def send(self, text: str) -> None:
+    def send(self, text: str, quick: bool = False) -> None:
+        """누르기만 하면 되는 질문(quick)은 규칙으로 바로 답한다 (빠르고, AI 호출 한도를 아낀다).
+        직접 쓴 질문은 Gemini 에게 묻고, 한도 초과 · 인터넷 끊김이면 규칙 답으로 대신한다."""
         text = text.strip()
         if not text:
             return
         self.input.clear()
         user = self._bubble_user(text)
         self.messages.addWidget(user)
-        self.messages.addWidget(self._bubble_ai(respond(self.state, text)))
+        if quick:
+            self.messages.addWidget(self._bubble_ai(respond(self.state, text)))
+        else:
+            self._req += 1
+            bubble = self._bubble_ai(ChatReply("생각하고 있어요…"), thinking=True)
+            self.messages.addWidget(bubble)
+            self._pending[self._req] = (text, bubble)
+            providers.chat_provider().ask(self._req, text, chat_context(self.state), self._history[-2:])
         # 질문과 답의 첫 줄이 보이게 (맨 끝으로 내리면 답 문장이 장소 카드에 밀려 사라진다)
         QTimer.singleShot(60, lambda: self.scroll.verticalScrollBar().setValue(
             max(0, user.mapTo(self.scroll.widget(), user.rect().topLeft()).y() - 12)))
+
+    def _replace(self, req: int, reply: ChatReply) -> None:
+        item = self._pending.pop(req, None)
+        if item is None:                    # 모드가 바뀌어 대화를 지웠다
+            return
+        question, bubble = item
+        i = self.messages.indexOf(bubble)
+        if i < 0:
+            return
+        self.messages.insertWidget(i, self._bubble_ai(reply))
+        self.messages.removeWidget(bubble)
+        bubble.deleteLater()
+        self._history.append({"q": question, "a": reply.text})
+
+    def _on_answered(self, req: int, d: dict) -> None:
+        by_id = {a.place.id: a for a in nearby(self.state)}
+        places = [by_id[i] for i in d.get("place_ids") or [] if i in by_id]
+        self._replace(req, ChatReply(str(d.get("answer", "")), places))
+
+    def _on_failed(self, req: int, _msg: str) -> None:
+        item = self._pending.get(req)
+        if item is not None:
+            self._replace(req, respond(self.state, item[0]))
 
     def refresh(self) -> None:
         p = self.state.palette

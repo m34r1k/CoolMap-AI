@@ -72,6 +72,27 @@ export function disasterAlerts(region: string) {
   return request<{ alerts: DisasterAlert[] }>(`/functions/v1/alerts?region=${encodeURIComponent(region)}`);
 }
 
+// -- 물어보기 (supabase/functions/chat) -----------------------------------------
+
+/** 질문과 함께 보내는 '지금 상황' (plain.ts chatContext). 좌표는 보내지 않는다. */
+export type ChatContext = {
+  mode: Mode;
+  now: string;
+  weather: { temp: string; sky: string; hint: string; alert: string };
+  alerts: string[];
+  places: { id: string; name: string; category: string; kind: string; walk: string; open: string; indoor: string; stay: string; report: string }[];
+};
+export type ChatAnswer = { answer: string; place_ids: string[]; on_topic: boolean };
+
+/** Gemini 에게 묻는다. 쉼터 · 날씨 · 앱에 관한 질문만 답하고, 그 밖은 서버가 정한 문장으로 거절한다. */
+export function askChat(question: string, ctx: ChatContext, history: { q: string; a: string }[]) {
+  return request<ChatAnswer>(
+    "/functions/v1/chat",
+    { method: "POST", body: JSON.stringify({ question, ...ctx, history }) },
+    30_000,
+  );
+}
+
 // -- AI (supabase/functions/ai) ---------------------------------------------
 
 /** 민폐도를 좌우하는 '시설 성격'. 값은 서버의 허용 목록과 같아야 한다. */
