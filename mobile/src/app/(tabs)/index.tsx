@@ -7,6 +7,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from "reac
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import type { Analysis } from "../../analysis";
+import { AlertCard } from "../../components/Alerts";
 import { PlaceRow, TopCard } from "../../components/PlaceCard";
 import { BigButton, Icon, Logo, T } from "../../components/ui";
 import { UpdateBanner } from "../../components/UpdateBanner";
@@ -30,6 +31,7 @@ export default function Home() {
       <Logo p={p} subtitle={false} />
 
       <Weather />
+      <AlertCard alerts={s.alerts} p={p} />
       <ModeSwitch />
 
       {!s.located && !!s.locationNotice && (

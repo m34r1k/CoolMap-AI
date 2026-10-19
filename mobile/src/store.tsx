@@ -17,6 +17,8 @@ import {
 import { type Analysis, analyze, type Now, nowParts, type Weather, weatherFromObs } from "./analysis";
 import {
   cancelReport,
+  type DisasterAlert,
+  disasterAlerts,
   recentReports,
   type Report,
   type ReportKind,
@@ -28,7 +30,7 @@ import {
 import { mergeCandidates, nearbyCandidates } from "./candidates";
 import { haversine, walkMinutes } from "./geo";
 import { onNuisance } from "./nuisance";
-import { type SkyIcon, skyLine } from "./plain";
+import { regionOf, type SkyIcon, skyLine } from "./plain";
 import { type Place, shelterToPlace } from "./places";
 import { load, save } from "./storage";
 import { defaultMode, type Mode, type Palette, paletteFor } from "./theme";
@@ -99,6 +101,10 @@ type Store = {
   setSearchCenter: (c: LngLat) => void;
 
   weather: Weather;
+  /** 내 시군구 (가장 가까운 공식 쉼터 주소로 정한다). 모르면 '' */
+  region: string;
+  /** 내 지역의 최근 24시간 재난문자, 최신순 */
+  alerts: DisasterAlert[];
   /** 하늘 — 아이콘 · '비가 와요' · '오후 5시쯤 그칠 것 같아요' (모르면 빈 글자) */
   sky: { icon: SkyIcon; text: string; hint: string };
   loading: boolean;
@@ -146,6 +152,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const [obs, setObs] = useState<Record<string, string> | null>(null);
   const [skyHours, setSkyHours] = useState<SkyHour[] | null>(null);
+  const [region, setRegion] = useState("");
+  const [alerts, setAlerts] = useState<DisasterAlert[]>([]);
   const [officialRes, setOfficialRes] = useState<Loaded<Place[]>>({ key: "", value: [] });
   const [guessRes, setGuessRes] = useState<Loaded<Place[]>>({ key: "", value: [] });
   // 한 번이라도 목록에 실렸던 장소 — 상세 화면은 id 로만 찾으므로, 목록이 바뀐 뒤에도 열 수 있게 둔다
@@ -362,6 +370,38 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return out.filter((a) => walkMinutes(haversine(lat, lon, a.place.lat, a.place.lon)) <= settings.maxWalk);
   }, [places, analyzePlace, settings.onlyOfficial, settings.maxWalk, searchCenter]);
 
+  // -- 재난문자 (내 시군구, 5분마다) ------------------------------------------------
+  // 내 위치에서 3km 안의 가장 가까운 공식 쉼터 주소로 시군구를 정한다. 한 번 정하면 새로 못 찾아도 유지한다.
+  useEffect(() => {
+    const [lon, lat] = here;
+    let best: { d: number; r: string } | null = null;
+    for (const x of places) {
+      if (!x.official) continue;
+      const r = regionOf(x.address);
+      if (!r) continue;
+      const d = haversine(lat, lon, x.lat, x.lon);
+      if (d <= 3000 && (!best || d < best.d)) best = { d, r };
+    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 쉼터 목록이 바뀌었을 때만 다시 정한다
+    if (best) setRegion(best.r);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 좌표 값으로 비교
+  }, [places, here[0], here[1]]);
+
+  useEffect(() => {
+    if (!region) return;
+    let cancelled = false;
+    const get = () =>
+      disasterAlerts(region)
+        .then((d) => !cancelled && setAlerts(d.alerts ?? []))
+        .catch(() => {});
+    get();
+    const t = setInterval(get, 5 * 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, [region]);
+
   const getPlace = useCallback(
     (id: string) => seen.get(id) ?? settings.favorites.find((f) => f.id === id),
     [seen, settings.favorites],
@@ -477,6 +517,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setSearchCenter,
     weather,
     sky,
+    region,
+    alerts,
     loading,
     aiLoading,
     error,

@@ -142,9 +142,12 @@ export function skyLine(
   d = new Date(),
 ): { icon: SkyIcon; text: string; hint: string } {
   const key = `${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}${pad2(d.getHours())}`;
+  const n = new Date(d.getTime() + 3600_000);
+  const nxt = `${n.getFullYear()}${pad2(n.getMonth() + 1)}${pad2(n.getDate())}${pad2(n.getHours())}`;
   const hours = (sky ?? []).filter((h) => String(h.at) >= key);
-  const cur = hours[0]?.at === key ? hours[0] : undefined;
-  const ahead = cur ? hours.slice(1, 7) : hours.slice(0, 6);
+  // 단기예보는 발표 시각의 다음 시간부터 나온다 → 지금 시각이 없으면 바로 다음 시간 것을 쓴다
+  const cur = hours[0] && (hours[0].at === key || hours[0].at === nxt) ? hours[0] : undefined;
+  const ahead = hours.filter((h) => String(h.at) > key).slice(0, 6);
   const night = d.getHours() >= 19 || d.getHours() < 6;
   const at = (h: SkyHour) => hourWord(Number(String(h.at).slice(8, 10)));
 
@@ -167,4 +170,26 @@ export function skyLine(
           : ["", ""];
   const coming = ahead.find((h) => FCST_WET[h.pty]);
   return { icon, text, hint: coming ? `${at(coming)}쯤 ${WET_WORD[FCST_WET[coming.pty]]} 소식 · 우산 챙기세요` : "" };
+}
+
+// -- 재난문자 — coolmap/plain.py region_of · alert_head --------------------------
+
+/** 주소 → '시도 시군구 (구)'. 예) '경기도 성남시 분당구 판교역로 …' → '경기도 성남시 분당구'. 모르면 '' */
+export function regionOf(address: string): string {
+  const t = address.trim().split(/\s+/);
+  if (!t[0] || !/^[가-힣]+(시|도)$/.test(t[0])) return "";
+  const out = [t[0]];
+  for (const x of t.slice(1, 3)) {
+    if (!/^[가-힣]+(시|군|구)$/.test(x)) break;
+    out.push(x);
+  }
+  return out.join(" ");
+}
+
+/** 위급·긴급 재난이면 빨강으로 보인다 */
+export const alertUrgent = (step: string) => step.includes("위급") || step.includes("긴급");
+
+/** 재난문자 머리줄. 예) '10분 전 · 호우 · 안전안내' */
+export function alertHead(a: { at: string; kind: string; step: string }): string {
+  return [agoWord(a.at), a.kind && a.kind !== "기타" ? a.kind : "", a.step].filter(Boolean).join(" · ");
 }

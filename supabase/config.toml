@@ -6,6 +6,7 @@
 #   - weather · ai : 누구나 부르는 공개 함수 (ai 는 IP 별 호출 한도로 막는다)
 #   - sync-shelters: pg_cron 이 x-sync-secret 헤더를 붙여 부른다
 #   - route · report: 누구나 부르는 공개 함수 (IP 별 한도로 막는다)
+#   - alerts       : 누구나 부르는 공개 함수 (재난문자는 5분에 한 번만 받아 캐시)
 
 project_id = "kgquzsmtjrlneveddaqv"
 
@@ -22,4 +23,7 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.report]
+verify_jwt = false
+
+[functions.alerts]
 verify_jwt = false

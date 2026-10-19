@@ -62,6 +62,16 @@ export function weather(lat: number, lon: number) {
   return request<WeatherResponse>(`/functions/v1/weather?nx=${nx}&ny=${ny}`);
 }
 
+// -- 재난문자 (supabase/functions/alerts) -------------------------------------
+
+/** 행정안전부 재난문자 한 건. step: 위급재난 · 긴급재난 · 안전안내, kind: 호우 · 폭염 · 한파 · 기타 …, area: 받은 지역 */
+export type DisasterAlert = { sn: number; at: string; step: string; kind: string; text: string; area: string };
+
+/** 이 지역(예: '경기도 성남시 분당구')의 최근 24시간 재난문자, 최신순 */
+export function disasterAlerts(region: string) {
+  return request<{ alerts: DisasterAlert[] }>(`/functions/v1/alerts?region=${encodeURIComponent(region)}`);
+}
+
 // -- AI (supabase/functions/ai) ---------------------------------------------
 
 /** 민폐도를 좌우하는 '시설 성격'. 값은 서버의 허용 목록과 같아야 한다. */

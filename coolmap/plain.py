@@ -6,6 +6,7 @@ mobile/src/plain.ts 와 같은 문장을 쓴다 — 한쪽을 고치면 다른 �
 
 from __future__ import annotations
 
+import re
 from urllib.parse import quote
 
 from .ai import Analysis
@@ -189,10 +190,14 @@ def sky_line(obs: dict | None, sky: list[dict], now) -> tuple[str, str, str]:
     아이콘: sunny · night · partly · partly_night · cloudy · rain · sleet · snow.
     지금 비·눈은 실황(관측)으로, 맑음·흐림과 앞으로 올 비는 예보로 판단한다.
     """
+    from datetime import timedelta
+
     key = now.strftime("%Y%m%d%H")
+    nxt = (now + timedelta(hours=1)).strftime("%Y%m%d%H")
     hours = [h for h in sky if str(h.get("at", "")) >= key]
-    cur = hours[0] if hours and hours[0].get("at") == key else None
-    ahead = hours[1:7] if cur else hours[:6]
+    # 단기예보는 발표 시각의 다음 시간부터 나온다 → 지금 시각이 없으면 바로 다음 시간 것을 쓴다
+    cur = hours[0] if hours and str(hours[0].get("at")) in (key, nxt) else None
+    ahead = [h for h in hours if str(h.get("at")) > key][:6]
     night = now.hour >= 19 or now.hour < 6
 
     wet = None
@@ -229,3 +234,44 @@ def sky_line(obs: dict | None, sky: list[dict], now) -> tuple[str, str, str]:
         kind = _FCST_WET[int(coming["pty"])]
         hint = f"{hour_word(int(str(coming['at'])[8:10]))}쯤 {_WET_WORD[kind]} 소식 · 우산 챙기세요"
     return icon, text, hint
+
+
+# -- 재난문자 ------------------------------------------------------------------------
+_SIDO = re.compile(r"^[가-힣]+(시|도)$")
+_SIGUNGU = re.compile(r"^[가-힣]+(시|군|구)$")
+
+
+def region_of(address: str) -> str:
+    """주소 → '시도 시군구 (구)'. 예) '경기도 성남시 분당구 판교역로 …' → '경기도 성남시 분당구'. 모르면 ''."""
+    t = address.split()
+    if not t or not _SIDO.match(t[0]):
+        return ""
+    out = [t[0]]
+    for x in t[1:3]:
+        if not _SIGUNGU.match(x):
+            break
+        out.append(x)
+    return " ".join(out)
+
+
+def my_region(analyses, within_m: float = 3000) -> str:
+    """내 위치에서 within_m 안의 가장 가까운 공식 쉼터 주소로 정한 시군구. 모르면 ''."""
+    best = None
+    for a in analyses:
+        if not a.place.official or a.meters > within_m:
+            continue
+        r = region_of(a.place.address)
+        if r and (best is None or a.meters < best[0]):
+            best = (a.meters, r)
+    return best[1] if best else ""
+
+
+def alert_urgent(step: str) -> bool:
+    """위급·긴급 재난이면 빨강으로 보인다."""
+    return "위급" in step or "긴급" in step
+
+
+def alert_head(a: dict) -> str:
+    """재난문자 머리줄. 예) '10분 전 · 호우 · 안전안내'."""
+    kind = a.get("kind", "")
+    return " · ".join(x for x in (ago_word(a.get("at", "")), kind if kind != "기타" else "", a.get("step", "")) if x)

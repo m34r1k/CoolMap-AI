@@ -14,6 +14,7 @@ _shelters: dict = {}
 _location = None
 _route = None
 _reports = None
+_alerts = None
 
 
 def tile_provider():
@@ -97,8 +98,16 @@ def report_provider():
     return _reports
 
 
+def alert_provider():
+    global _alerts
+    if _alerts is None:
+        from .alerts import AlertProvider
+        _alerts = AlertProvider()
+    return _alerts
+
+
 def shutdown_all() -> None:
-    for p in (_tiles, _weather, _buildings, _nuisance, _candidates, _location, _route, _reports,
+    for p in (_tiles, _weather, _buildings, _nuisance, _candidates, _location, _route, _reports, _alerts,
               *_shelters.values()):
         if p is not None:
             try:

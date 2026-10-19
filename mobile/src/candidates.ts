@@ -15,7 +15,10 @@ import type { Mode } from "./theme";
 const CACHE_VERSION = 1; // ALLOW 나 질의를 바꾸면 올린다 (오래된 셀 캐시를 버린다)
 
 const CELL = 0.01; // 약 1.1km × 0.9km
-const MAX_CELLS = 42;
+const MAX_CELLS = 42; // 반경 2.5km 를 덮는 데 필요한 만큼
+// AI 추정 쉼터를 찾는 최대 반경 (m). 찾는 범위를 이보다 크게 잡아도 여기까지만 본다 —
+// 예전에는 칸 수(MAX_CELLS)를 넘으면 통째로 0곳을 돌려줘서, 범위를 늘리면 AI 추정 쉼터가 사라졌다.
+const AI_MAX_RADIUS = 2400;
 const MAX_NEW_CELLS = 12; // 한 번에 새로 요청할 셀 수 (가까운 곳부터 채운다)
 const SCAN_LIMIT = 140; // 한 번에 판단 대상으로 올릴 POI 수
 const BATCH = 25; // 서버에 한 번에 물어볼 개수
@@ -361,6 +364,7 @@ export async function nearbyCandidates(
   cancelled: () => boolean,
 ): Promise<Place[]> {
   const [lat0, lon0] = origin;
+  radiusM = Math.min(radiusM, AI_MAX_RADIUS);
   const dlat = radiusM / 111_000;
   const dlon = radiusM / 88_000;
   const c0 = cellOf(lat0 - dlat, lon0 - dlon);

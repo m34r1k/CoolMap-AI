@@ -38,6 +38,9 @@ CACHE_VERSION = 1    # _ALLOW 나 질의를 바꾸면 올린다 (오래된 셀 �
 
 CELL = 0.01          # 약 1.1km × 0.9km — 건물 캐시와 같은 격자
 MAX_CELLS = 42       # 반경 2.5km 를 덮는 데 필요한 만큼
+#: AI 추정 쉼터를 찾는 최대 반경 (m). 찾는 범위를 이보다 크게 잡아도 여기까지만 본다 —
+#: 예전에는 칸 수(MAX_CELLS)를 넘으면 통째로 0곳을 돌려줘서, 범위를 늘리면 AI 추정 쉼터가 사라졌다.
+AI_MAX_RADIUS = 2400
 MAX_NEW_CELLS = 6    # 한 번에 새로 요청할 셀 수 (가까운 곳부터 채운다)
 FAIL_COOLDOWN = 180  # 실패한 셀 재시도 대기 (초)
 
@@ -503,6 +506,7 @@ class CandidateProvider(QObject):
             return []
 
         lat0, lon0 = origin
+        radius_m = min(radius_m, AI_MAX_RADIUS)
         dlat = radius_m / 111_000.0
         dlon = radius_m / 88_000.0
         c0 = _cell_of(lat0 - dlat, lon0 - dlon)

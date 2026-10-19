@@ -228,6 +228,7 @@ class MainWindow(QMainWindow):
         # 이용자 제보 — 내용이 바뀌었을 때만 updated 가 온다
         self.reports = providers.report_provider()
         self.reports.updated.connect(self.refresh_all)
+        providers.alert_provider().updated.connect(self.refresh_all)
         self.reports.added.connect(self._on_report_added)
         self.reports.cancelled.connect(self._on_report_cancelled)
 

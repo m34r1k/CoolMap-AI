@@ -22,7 +22,7 @@ from ..ai import analyze, live_sky, live_weather
 from ..catalog import find_by_id
 from ..config import AppState
 from ..models import COOLING, HEATING
-from ..plain import MODE_TITLE, SHELTER_WORD, nearby, nearest_first
+from ..plain import MODE_TITLE, SHELTER_WORD, alert_head, alert_urgent, my_region, nearby, nearest_first
 from ..theme import Palette, rain_color
 from .common import Card, IconLabel, set_prop, ui_font
 from .placecard import PlaceRow, TopCard
@@ -105,6 +105,93 @@ class WeatherCard(Card):
             f"#skyHint {{ background: {p.card_alt}; border-radius: 14px; }} QLabel {{ color: {p.text}; background: transparent; }}")
 
 
+class AlertCard(Card):
+    """재난문자 — 내 시군구의 최근 24시간 행정안전부 재난문자. 가장 최근 한 건을 보이고 '더 보기' 로 펼친다.
+    mobile/src/components/Alerts.tsx 와 같다."""
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent, padding=18, spacing=10, shadow=False)
+        self.setObjectName("alertCard")
+        head = QHBoxLayout()
+        head.setSpacing(8)
+        self.icon = IconLabel("alert", 24, "#F59E0B", 2.0)
+        title = QLabel("재난문자")
+        title.setFont(ui_font(18, QFont.ExtraBold))
+        head.addWidget(self.icon)
+        head.addWidget(title, 1)
+        self.body().addLayout(head)
+        self.items = QVBoxLayout()
+        self.items.setSpacing(10)
+        self.body().addLayout(self.items)
+        self.more = QPushButton("")
+        self.more.setCursor(Qt.PointingHandCursor)
+        self.more.setFont(ui_font(15, QFont.ExtraBold))
+        self.more.clicked.connect(self._toggle)
+        row = QHBoxLayout()
+        row.addWidget(self.more)
+        row.addStretch(1)
+        self.body().addLayout(row)
+        self._open = False
+        self._alerts: list[dict] = []
+        self._p: Palette | None = None
+        self._shown = None
+        self.hide()
+
+    def set_alerts(self, alerts: list[dict], p: Palette) -> None:
+        self._alerts, self._p = alerts, p
+        self._render()
+
+    def _toggle(self) -> None:
+        self._open = not self._open
+        self._render()
+
+    def _render(self) -> None:
+        alerts, p = self._alerts, self._p
+        # '10분 전' 이 바뀌는 것도 다시 그려야 하므로 머리줄까지 비교한다
+        key = (tuple((a.get("sn"), alert_head(a)) for a in alerts), p, self._open)
+        if key == self._shown:
+            return
+        self._shown = key
+        self.setVisible(bool(alerts))
+        if not alerts or p is None:
+            return
+        color = p.bad if alert_urgent(alerts[0].get("step", "")) else p.warn
+        self.icon.set_color(color)
+        self.setStyleSheet(
+            f"#alertCard {{ background: {p.card}; border: 2px solid {color}; border-radius: 20px; }}"
+            f" QLabel {{ background: transparent; color: {p.text}; }}")
+        while self.items.count():
+            w = self.items.takeAt(0).widget()
+            if w:
+                w.deleteLater()
+        for i, a in enumerate(alerts if self._open else alerts[:1]):
+            box = QWidget()
+            lay = QVBoxLayout(box)
+            lay.setContentsMargins(0, 10 if i else 0, 0, 0)
+            lay.setSpacing(4)
+            head = QLabel(alert_head(a))
+            head.setFont(ui_font(14, QFont.Bold))
+            head.setStyleSheet(f"color: {p.bad if alert_urgent(a.get('step', '')) else p.text_dim};")
+            text = QLabel(a.get("text", "") if self._open else _clip(a.get("text", ""), 160))
+            text.setFont(ui_font(16))
+            text.setWordWrap(True)
+            text.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            lay.addWidget(head)
+            lay.addWidget(text)
+            if i:
+                box.setObjectName("alertItem")
+                box.setStyleSheet(f"#alertItem {{ border-top: 1px solid {p.border}; }}")
+            self.items.addWidget(box)
+        long = len(alerts[0].get("text", "")) > 160
+        self.more.setVisible(len(alerts) > 1 or long or self._open)
+        self.more.setText(("접기" if self._open else f"더 보기 ({len(alerts)}건)" if len(alerts) > 1 else "전체 보기") + "  ")
+        self.more.setStyleSheet(f"QPushButton {{ color: {p.accent}; border: none; background: transparent; padding: 2px; }}")
+
+
+def _clip(text: str, n: int) -> str:
+    return text if len(text) <= n else text[:n].rstrip() + "…"
+
+
 class ModeSwitch(QWidget):
     """더위 피하기 / 추위 피하기."""
 
@@ -173,6 +260,8 @@ class HomeView(QWidget):
 
         self.weather = WeatherCard()
         lay.addWidget(self.weather)
+        self.alerts = AlertCard()
+        lay.addWidget(self.alerts)
         self.modes = ModeSwitch(state)
         lay.addWidget(self.modes)
 
@@ -233,7 +322,12 @@ class HomeView(QWidget):
                                  live_sky(state.origin))
         self.modes.refresh()
 
-        items = nearest_first(nearby(state))
+        near = nearby(state)
+        alerts = providers.alert_provider()
+        alerts.want(my_region(near))
+        self.alerts.set_alerts(alerts.get(), p)
+
+        items = nearest_first(near)
         providers.report_provider().want([a.place.id for a in items[:40]] + list(state.favorites))
         self.best_title.setText(f"가장 가까운 {SHELTER_WORD[state.mode]}")
         if items:
