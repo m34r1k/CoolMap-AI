@@ -3,11 +3,11 @@
 // 호출:  POST /functions/v1/report
 //   { "task": "add", "place_id": "H12345", "kind": "closed" | "gone" | "no_hvac" | "ok", "device": "<기기 표식>" }
 //     → { ok: true, id }
-//   { "task": "cancel", "id": 123, "device": "<기기 표식>" }          (본인 제보만, 48시간 안)
+//   { "task": "cancel", "id": 123, "device": "<기기 표식>" }          (본인 제보만, 24시간 안)
 //     → { ok: true }
 //   { "task": "recent", "place_ids": ["H12345", ...] }                (최대 300개)
 //     → { reports: { "H12345": { kind, at, count } } }
-//        · 최근 48시간 기준. 가장 최근이 'ok' 면 { kind: "ok", at, count: 0 } (앞선 문제 제보는 가린다)
+//        · 최근 24시간 기준 (하루 지난 제보는 보이지 않는다). 가장 최근이 'ok' 면 { kind: "ok", at, count: 0 } (앞선 문제 제보는 가린다)
 //        · 아니면 가장 최근 문제 제보의 kind · at 과, 마지막 'ok' 이후 문제 제보 건수
 //
 // 공개 키만 있으면 누구나 부를 수 있으므로:
@@ -24,7 +24,7 @@ const PLACE_ID = /^([HC][0-9]{1,12}|G[nwr][0-9]{1,15})$/;
 const DEVICE = /^[A-Za-z0-9-]{16,64}$/;
 const SAME_PLACE_MIN = 10;
 const IP_PER_HOUR = 40; // 쉼터 와이파이처럼 여러 사람이 한 IP 를 쓰는 경우를 생각해 넉넉히
-const RECENT_HOURS = 48;
+const RECENT_HOURS = 24;
 const MAX_IDS = 300;
 
 const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -74,7 +74,7 @@ async function cancel(body: Record<string, unknown>) {
   const { data, error } = await db.from("shelter_reports").delete()
     .eq("id", id).eq("device", device).gt("at", ago(RECENT_HOURS * 60)).select("id");
   if (error) throw new HttpError(500, error.message);
-  if (!data?.length) throw new HttpError(404, "취소할 제보를 찾지 못했어요 (이미 취소했거나 48시간이 지났어요)");
+  if (!data?.length) throw new HttpError(404, "취소할 제보를 찾지 못했어요 (이미 취소했거나 하루가 지났어요)");
   return { ok: true };
 }
 

@@ -361,7 +361,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "알리지 못했어요", msg)
 
     def _on_report_cancelled(self, ok: bool, msg: str, place_id: str) -> None:
-        # 이미 취소됐거나 48시간이 지난 제보여도 내 목록에서는 지운다
+        # 이미 취소됐거나 하루가 지난 제보여도 내 목록에서는 지운다
         self.state.forget_report(place_id)
         if ok:
             QMessageBox.information(self, "제보 취소", msg)

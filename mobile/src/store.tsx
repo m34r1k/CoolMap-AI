@@ -118,11 +118,11 @@ type Store = {
   isFavorite: (id: string) => boolean;
   toggleFavorite: (p: Place) => void;
   reload: () => void;
-  /** 최근 48시간 이용자 제보 (쉼터 id → 가장 최근 제보) */
+  /** 최근 24시간 이용자 제보 (쉼터 id → 가장 최근 제보) */
   reports: Record<string, Report>;
   /** 쉼터에 문제가 있다고(또는 괜찮다고) 알린다. 실패하면 쉬운 말 오류를 던진다 */
   report: (placeId: string, kind: ReportKind) => Promise<void>;
-  /** 이 쉼터에 내가 48시간 안에 보낸 제보 (취소 버튼용) */
+  /** 이 쉼터에 내가 24시간 안에 보낸 제보 (취소 버튼용) */
   myReport: (placeId: string) => MyReport | undefined;
   /** 내 제보 취소 */
   cancelMyReport: (placeId: string) => Promise<void>;
@@ -444,7 +444,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const iv = setInterval(() => setReportsTick((k) => k + 1), 5 * 60_000);
     return () => clearInterval(iv);
   }, []);
-  // 내가 보낸 제보 — 취소 버튼을 띄우려고 48시간 동안 기억한다. 기기 표식은 본인 확인용이다.
+  // 내가 보낸 제보 — 취소 버튼을 띄우려고 24시간 동안 기억한다. 기기 표식은 본인 확인용이다.
   const [myReports, setMyReports] = useState<Record<string, MyReport>>({});
   const device = useRef("");
   useEffect(() => {
@@ -458,7 +458,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       save("device_id", fresh);
     });
     load<Record<string, MyReport>>("my_reports", {}).then((all) => {
-      const cut = Date.now() - 48 * 3600_000;
+      const cut = Date.now() - 24 * 3600_000;
       setMyReports(Object.fromEntries(Object.entries(all).filter(([, r]) => r.at > cut)));
     });
   }, []);
@@ -478,7 +478,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const myReport = useCallback(
     (placeId: string) => {
       const r = myReports[placeId];
-      return r && r.at > Date.now() - 48 * 3600_000 ? r : undefined;
+      return r && r.at > Date.now() - 24 * 3600_000 ? r : undefined;
     },
     [myReports],
   );

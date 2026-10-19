@@ -384,7 +384,8 @@ class PlaceRow(QFrame):
         status = (f"<span style='color:{p.good}; font-weight:700'>지금 열림</span>" if open_
                   else f"<span style='color:{p.text_mute}; font-weight:700'>문 닫음</span>")
         guess = f" · <span style='color:{p.warn}'>AI 추정</span>" if a.place.ai_guess else ""
-        if providers.report_provider().get(a.place.id):
+        r = providers.report_provider().get(a.place.id)
+        if r and r.get("kind") != "ok":          # '지금은 괜찮아요' 확인이 가장 최근이면 표시하지 않는다
             guess += f" · <span style='color:{p.bad}; font-weight:700'>제보 있음</span>"
         self.meta.setText(f"<span style='color:{p.text_dim}'>걸어서 {max(1, a.walk_min)}분 · </span>"
                           f"{status}<span style='color:{p.text_dim}'>{guess}</span>")

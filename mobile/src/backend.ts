@@ -143,7 +143,7 @@ export async function reportShelter(placeId: string, kind: ReportKind, device: s
   return d.id;
 }
 
-/** 내가 보낸 제보를 취소한다 (48시간 안, 같은 기기에서만) */
+/** 내가 보낸 제보를 취소한다 (24시간 안, 같은 기기에서만) */
 export async function cancelReport(id: number, device: string): Promise<void> {
   await request<{ ok: boolean }>("/functions/v1/report", {
     method: "POST",
@@ -151,7 +151,7 @@ export async function cancelReport(id: number, device: string): Promise<void> {
   });
 }
 
-/** 최근 48시간 제보 (쉼터별 가장 최근 제보와 건수) */
+/** 최근 24시간 제보 (쉼터별 가장 최근 제보와 건수) */
 export async function recentReports(placeIds: string[]): Promise<Record<string, Report>> {
   if (!placeIds.length) return {};
   const d = await request<{ reports: Record<string, Report> }>("/functions/v1/report", {

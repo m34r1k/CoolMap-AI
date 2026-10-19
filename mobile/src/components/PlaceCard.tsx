@@ -111,7 +111,8 @@ export function PlaceRow({ a, p, onPress }: { a: Analysis; p: Palette; onPress: 
             {open ? "지금 열림" : "문 닫음"}
           </T>
           {a.place.aiGuess ? " · AI 추정" : ""}
-          {s.reports[a.place.id] && (
+          {/* '지금은 괜찮아요' 확인이 가장 최근이면 표시하지 않는다 */}
+          {s.reports[a.place.id] && s.reports[a.place.id].kind !== "ok" && (
             <T size={14} weight="700" color={p.bad}>
               {" "}· 제보 있음
             </T>

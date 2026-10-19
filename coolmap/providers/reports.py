@@ -1,4 +1,4 @@
-"""쉼터 제보 — CoolMap 서버(report 함수)에 문제를 알리고, 최근 48시간 제보를 받는다.
+"""쉼터 제보 — CoolMap 서버(report 함수)에 문제를 알리고, 최근 24시간 제보를 받는다.
 
 mobile/src/backend.ts 의 reportShelter · recentReports 와 같은 서버를 쓴다.
 
